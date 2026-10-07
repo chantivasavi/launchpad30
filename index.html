@@ -134,7 +134,7 @@ input[type=checkbox]{width:auto;min-height:0}
 <div id="toast" hidden></div>
 <script>
 const sb = supabase.createClient('https://swsgehwrsfftqobdjpff.supabase.co', 'sb_publishable_A_XD_57MohmK0zGlc6zkwg_4Kjyh82h');
-const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash)};
+const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],locs:[],wfh:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash)};
 const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',member:'Team member'};
 const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',completed:'Completed'};
 const PRIO = {low:'Low',medium:'Medium',high:'High',urgent:'Urgent'};
@@ -167,9 +167,12 @@ const D = id => S.depts.find(d => d.id === id)?.name || '';
 const leader = p => ['founder','cofounder','director'].includes(p?.role);
 const isLead = () => leader(S.me);
 const onLeave = id => { const t = today(); return S.offs.some(o => o.user_id===id && o.start_date<=t && o.end_date>=t); };
+const leaveOn = (id,d) => S.offs.some(o => o.user_id===id && o.start_date<=d && o.end_date>=d);
+const wfhOn = (id,d) => S.wfh.some(w => w.user_id===id && w.work_date===d);
+const whereOn = (id,d) => leaveOn(id,d) ? 'on leave' : wfhOn(id,d) ? 'working from home' : '';
 const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && a.role==='member')); };
 const canCreate = () => isLead() || S.me.can_assign;
-const canEditTask = t => t.created_by===S.me.id || S.me.role==='founder';
+const canEditTask = t => t.created_by===S.me.id || isLead();
 const canUpdateTask = t => canEditTask(t) || t.assigned_to===S.me.id;
 const canManage = p => S.me.role==='founder' || (S.me.role==='director' && p.role==='member' && p.id!==S.me.id);
 const empId = p => p.role==='member' && p.employee_id ? esc(p.employee_id) : '';
@@ -270,7 +273,7 @@ function gateView(){
 
 /* ---------- Data ---------- */
 async function loadAll(){
-  const [people,depts,tasks,leaves,offs,notes,acts,events] = await Promise.all([
+  const [people,depts,tasks,leaves,offs,notes,acts,events,locs,wfh] = await Promise.all([
     q(sb.from('profiles').select('*').order('full_name')),
     q(sb.from('departments').select('*').order('name')),
     q(sb.from('tasks').select('*').order('deadline',{ascending:true,nullsFirst:false})),
@@ -278,9 +281,11 @@ async function loadAll(){
     q(sb.rpc('approved_leaves')),
     q(sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(60)),
     q(sb.from('activity').select('*').order('created_at',{ascending:false}).limit(200)),
-    q(sb.from('events').select('*').order('event_date'))
+    q(sb.from('events').select('*').order('event_date')),
+    q(sb.from('team_locations').select('*').gte('work_date', today())),
+    q(sb.from('wfh_days').select('*').gte('work_date', today()))
   ]);
-  Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events});
+  Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events,locs,wfh});
   S.me = people.find(p => p.id===S.me.id) || S.me;
 }
 async function refresh(){ await loadAll(); if(S.me.status!=='active') return gateView(); route(); }
@@ -360,6 +365,7 @@ function leaveRow(l, showName){
   let actions = '';
   if (l.status==='pending' && canApprove(l)) actions += `<button class="btn sm primary" onclick="decideLeave('${l.id}','approved')">Approve</button><button class="btn sm danger" onclick="rejectForm('${l.id}')">Reject</button>`;
   if (mine && (l.status==='pending' || (l.status==='approved' && l.end_date>=t))) actions += `<button class="btn sm" onclick="cancelLeave('${l.id}')">Cancel leave</button>`;
+  if (canApprove(l) || (mine && S.me.role==='founder')) actions += `<button class="btn sm danger" onclick="delLeave('${l.id}')">Delete</button>`;
   return `<div class="row" style="flex-wrap:wrap">${showName ? av(P(l.user_id),32) : ''}
     <span class="grow wrap" style="min-width:180px"><b>${showName ? esc(nm(l.user_id))+', ' : ''}${fmt(l.start_date)}${l.end_date!==l.start_date ? ' to '+fmt(l.end_date) : ''} (${l.days} day${l.days>1?'s':''})</b>
       <small>${LTYPE[l.leave_type]}: ${esc(l.reason)}${l.status==='rejected' && l.rejection_reason ? '<br>Rejected: '+esc(l.rejection_reason) : ''}${l.decided_by && l.status==='approved' && l.decided_by!==l.user_id ? '<br>Approved by '+esc(nm(l.decided_by)) : ''}
@@ -393,6 +399,7 @@ function homeView(){
     ${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
     <div class="stats"><div><b>${all.length}</b><small>Total tasks</small></div><div><b>${all.filter(x=>x.status==='in_progress').length}</b><small>In progress</small></div>
       <div><b>${all.filter(x=>x.status==='completed').length}</b><small>Completed</small></div><div><b>${all.filter(x=>x.status!=='completed'&&x.deadline&&x.deadline<t).length}</b><small>Overdue</small></div></div>`;
+  out += whereBlock();
   if (requests.length) out += sec('Account requests', list(requests.map(accountRow)));
   if (approvals.length) out += sec('Leave to review', list(approvals.map(l => leaveRow(l,true))));
   if (late.length) out += sec('Overdue', list(late.map(taskRow)));
@@ -404,6 +411,33 @@ function homeView(){
   out += sec('Recent activity', list(S.acts.slice(0,6).map(actRow), 'Activity shows up here as the team works.'), `<a class="link" href="#activity">See all</a>`);
   return out;
 }
+
+function whereBlock(){
+  const t = today(), act = S.people.filter(p => p.status==='active');
+  const day = (d, label) => {
+    const loc = S.locs.find(x => x.work_date===d), mine = wfhOn(S.me.id, d);
+    const home = act.filter(p => wfhOn(p.id,d) && !leaveOn(p.id,d)).map(p => esc(p.full_name)), off = act.filter(p => leaveOn(p.id,d)).map(p => esc(p.full_name));
+    return `<div class="row" style="flex-wrap:wrap"><span class="grow wrap" style="min-width:200px"><b>${label}: ${loc ? esc(loc.location) : 'location not set yet'}</b>
+      <small>${home.length ? 'Working from home: '+home.join(', ') : 'Nobody is working from home'}${off.length ? '<br>On leave: '+off.join(', ') : ''}</small></span>
+      <span style="display:flex;gap:6px;flex-wrap:wrap">${isLead() ? `<button class="btn sm" onclick="locForm('${d}')">Set location</button>` : ''}
+      <button class="btn sm${mine ? ' primary' : ''}" onclick="toggleWfh('${d}')">${mine ? 'Cancel work from home' : 'Work from home'}</button></span></div>`;
+  };
+  return sec('Where we are working', `<div class="list">${day(t,'Today')}${day(addDays(t,1),'Tomorrow')}</div>`);
+}
+function locForm(d){
+  const loc = S.locs.find(x => x.work_date===d);
+  openModal(`<h2>Set work location</h2><form onsubmit="return send(event,saveLoc)">
+    <label class="field"><span>Date</span><input name="work_date" type="date" value="${d}" min="${today()}" required></label>
+    <label class="field"><span>Where the team is working</span><input name="location" value="${esc(loc?.location||'')}" placeholder="Office, T-Hub, client site" required></label>
+    <p class="muted" style="margin-bottom:14px">Everyone sees this on their home page and gets a notification.</p>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save location</button></div></form>`);
+}
+async function saveLoc(f){ await q(sb.from('team_locations').upsert({work_date:f.work_date, location:f.location.trim(), set_by:S.me.id, updated_at:new Date().toISOString()})); closeModal(); toast('Location saved'); await refresh(); }
+function toggleWfh(d){ return run(async () => {
+  if (wfhOn(S.me.id, d)) await q(sb.from('wfh_days').delete().eq('user_id',S.me.id).eq('work_date',d));
+  else await q(sb.from('wfh_days').insert({user_id:S.me.id, work_date:d}));
+  await refresh();
+}); }
 
 /* ---------- Tasks ---------- */
 function tasksView(){
@@ -434,12 +468,12 @@ function taskView(id){
   return `<a class="back" href="#tasks">Back to tasks</a>
     <div class="head"><div><h1>${esc(t.title)}</h1><p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
       ${t.is_leadership ? '<span class="pill blue">Leadership only</span>' : `<span class="pill">${VIS[t.visibility]}</span>`}${t.archived ? '<span class="pill">Archived</span>' : ''}${prio(t)}</p></div>
-      ${edit ? `<span style="display:flex;gap:6px"><button class="btn sm" onclick="taskForm('${t.id}')">Edit task</button><button class="btn sm" onclick="setTask('${t.id}',{archived:${!t.archived}})">${t.archived ? 'Restore' : 'Archive'}</button></span>` : ''}</div>
+      ${edit ? `<span style="display:flex;gap:6px"><button class="btn sm" onclick="taskForm('${t.id}')">Edit task</button><button class="btn sm" onclick="setTask('${t.id}',{archived:${!t.archived}})">${t.archived ? 'Restore' : 'Archive'}</button><button class="btn sm danger" onclick="delTask('${t.id}')">Delete task</button></span>` : ''}</div>
     <div class="kv">
       <div><label for="tst">Status</label>${upd ? `<select id="tst" onchange="setTask('${t.id}',{status:this.value})">${opts(STATUS,t.status)}</select>` : STATUS[t.status]}</div>
       <div><label for="tpr">Progress, <span id="pv">${t.progress}</span>%</label>${upd ? `<input id="tpr" type="range" min="0" max="100" step="5" value="${t.progress}" oninput="pv.textContent=this.value" onchange="setTask('${t.id}',{progress:+this.value})">` : ''}</div>
-      <div><label>Assigned to</label><a href="#person/${t.assigned_to}">${esc(nm(t.assigned_to))}</a></div>
-      <div><label>Created by</label><a href="#person/${t.created_by}">${esc(nm(t.created_by))}</a></div>
+      <div><label>Assigned to</label>${t.assigned_to ? `<a href="#person/${t.assigned_to}">${esc(nm(t.assigned_to))}</a>` : 'Unassigned'}</div>
+      <div><label>Created by</label>${t.created_by ? `<a href="#person/${t.created_by}">${esc(nm(t.created_by))}</a>` : 'Former member'}</div>
       <div><label>Department</label>${esc(D(t.department_id) || 'None')}</div>
       <div><label>Priority</label>${PRIO[t.priority]}</div>
       <div><label>Start date</label>${fmt(t.start_date)}</div>
@@ -480,9 +514,10 @@ function taskForm(id){
       <label class="field"><span>Title</span><input name="title" value="${esc(t.title||'')}" required></label>
       <label class="field"><span>Description</span><textarea name="description">${esc(t.description||'')}</textarea></label>
       <div class="two">
-        <label class="field"><span>Assign to</span><select name="assigned_to" id="tf_who" required onchange="leadHint()"><option value="">Choose a person</option>${who.map(p => `<option value="${p.id}"${p.id===t.assigned_to?' selected':''}>${esc(p.full_name)} (${ROLE[p.role]})</option>`).join('')}</select></label>
+        <label class="field"><span>Assign to</span><select name="assigned_to" id="tf_who" required onchange="leadHint()"><option value="">Choose a person</option>${who.map(p => `<option value="${p.id}"${p.id===t.assigned_to?' selected':''}>${esc(p.full_name)} (${ROLE[p.role]}${whereOn(p.id,today()) ? ', '+whereOn(p.id,today())+' today' : ''})</option>`).join('')}</select></label>
         <label class="field"><span>Department</span><select name="department_id" id="tf_dept">${deptOpts(t.department_id)}</select></label>
       </div>
+      <p class="muted" id="tf_where" style="margin:-6px 0 14px" hidden></p>
       <div class="note" id="tf_hint" hidden>Leadership task. Only the Founder, Co-Founder and Director will ever see it.</div>
       <div class="two">
         <label class="field"><span>Priority</span><select name="priority">${opts(PRIO,t.priority)}</select></label>
@@ -500,6 +535,9 @@ function taskForm(id){
 function leadHint(keepDept){
   const a = P($('#tf_who').value), lead = leader(a) && leader(P(S.editCreator));
   $('#tf_hint').hidden = !lead; $('#tf_vis').hidden = lead;
+  const w = $('#tf_where'); w.hidden = !a;
+  if (a) { const t = today(), tm = addDays(t,1), nx = S.offs.filter(o => o.user_id===a.id && o.end_date>=t).sort((x,y) => x.start_date<y.start_date?-1:1)[0];
+    w.textContent = `${a.full_name.split(' ')[0]} is ${whereOn(a.id,t) || 'working as usual'} today and ${whereOn(a.id,tm) || 'working as usual'} tomorrow.` + (nx ? ` Approved leave: ${fmt(nx.start_date)} to ${fmt(nx.end_date)}.` : ''); }
   if (a && !keepDept && a.department_id) $('#tf_dept').value = a.department_id;
 }
 async function saveTask(id, f){
@@ -578,7 +616,7 @@ function accountRow(p){
     <span style="display:flex;gap:6px"><button class="btn sm primary" onclick="setAccount('${p.id}','active')">Approve account</button><button class="btn sm danger" onclick="setAccount('${p.id}','rejected')">Reject</button></span></div>`;
 }
 function setAccount(id, status){ return run(async () => { await q(sb.from('profiles').update({status}).eq('id',id)); toast(status==='active' ? 'Account approved' : 'Request rejected'); await refresh(); }); }
-function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : '<span class="pill green">Active</span>'; }
+function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : wfhOn(p.id, today()) ? '<span class="pill blue">Working from home</span>' : '<span class="pill green">Active</span>'; }
 function personCard(p){ return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small></span>${statusPill(p)}</a>`; }
 function peopleView(){
   const admin = ['founder','director'].includes(S.me.role);
@@ -600,7 +638,7 @@ function personView(id){
     <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}</p></div></div>${statusPill(p)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
-      ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}</div>
+      ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>${me ? '' : `<button class="btn sm danger" onclick="delPerson('${p.id}')">Delete person</button>`}` : ''}</div>
     <div class="kv">
       <div><label>Department</label>${esc(D(p.department_id) || 'None')}</div>
       <div><label>Email</label><a href="mailto:${esc(p.email)}" style="overflow-wrap:anywhere">${esc(p.email)}</a></div>
@@ -696,7 +734,15 @@ async function saveEvent(f){ await q(sb.from('events').insert({title:f.title.tri
 function delEvent(id){ return run(async () => { await q(sb.from('events').delete().eq('id',id)); toast('Date removed'); await refresh(); }); }
 
 /* ---------- Activity, notifications, search, settings ---------- */
-function actView(){ return `<div class="head"><h1>Activity</h1></div>${list(S.acts.map(actRow), 'Activity shows up here as the team works.')}`; }
+function actView(){
+  const row = a => { const href = a.entity_type==='task' ? '#task/'+a.entity_id : a.entity_type==='leave' ? '#leave' : '#people';
+    return `<div class="row">${av(P(a.actor_id),28)}<a class="grow wrap" href="${href}"><b style="font-weight:500">${esc(a.message)}</b></a><span class="due">${ago(a.created_at)}</span><button class="btn sm danger" onclick="delAct('${a.id}')">Delete</button></div>`; };
+  return `<div class="head"><h1>Activity</h1></div>${list(S.acts.map(isLead() ? row : actRow), 'Activity shows up here as the team works.')}`;
+}
+function delTask(id){ if(!confirm('Delete this task for everyone? Its comments and files go too. This cannot be undone.')) return; return run(async () => { await q(sb.from('tasks').delete().eq('id',id)); toast('Task deleted'); await loadAll(); go('tasks'); }); }
+function delLeave(id){ if(!confirm('Delete this leave record? This cannot be undone.')) return; return run(async () => { await q(sb.from('leaves').delete().eq('id',id)); toast('Leave deleted'); await refresh(); }); }
+function delAct(id){ if(!confirm('Delete this activity entry?')) return; return run(async () => { await q(sb.from('activity').delete().eq('id',id)); toast('Activity deleted'); await refresh(); }); }
+function delPerson(id){ if(!confirm('Delete '+nm(id)+' permanently? Their login and leave records are removed. Their tasks stay, unassigned. This cannot be undone.')) return; return run(async () => { await q(sb.rpc('delete_person',{target:id})); toast('Person deleted'); await loadAll(); go('people'); }); }
 function inboxView(){
   const rows = S.notes.map(n => `<a class="row" href="#" onclick="openNote('${n.id}');return false"><span class="st ${n.read ? '' : 'st-in_progress'}" style="${n.read ? 'visibility:hidden' : 'background:var(--accent)'}"></span>
     <span class="grow wrap"><b style="font-weight:${n.read?500:700}">${esc(n.title)}</b><small>${esc(n.body||'')}</small></span><span class="due">${ago(n.created_at)}</span></a>`);
@@ -705,7 +751,7 @@ function inboxView(){
 async function openNote(id){
   const n = S.notes.find(x => x.id===id); if(!n) return;
   if (!n.read) { n.read = true; sb.from('notifications').update({read:true}).eq('id',id).then(()=>{}); }
-  go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : n.type==='account_approved' ? 'home' : 'people');
+  go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : ['account_approved','location'].includes(n.type) ? 'home' : 'people');
 }
 function readAll(){ return run(async () => { await q(sb.from('notifications').update({read:true}).eq('user_id',S.me.id).eq('read',false)); S.notes.forEach(n => n.read = true); route(); }); }
 function searchView(){
