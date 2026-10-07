@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LaunchPad 30 Team</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#F7F8FA;--surface:#FFFFFF;--ink:#16181D;--muted:#676C76;--line:#E3E5EA;--accent:#3447D4;--accent-soft:#ECEEFC;--red:#C93A30;--red-soft:#FBECEA;--green:#23855A;--green-soft:#E6F4EC;--amber:#A96B08;--amber-soft:#FBF1DC;--r:10px}
+@media (prefers-color-scheme:dark){:root{--bg:#121317;--surface:#1A1C22;--ink:#ECEDF0;--muted:#9499A3;--line:#2A2D35;--accent:#8E9AFF;--accent-soft:#23274A;--red:#F0766C;--red-soft:#3A1F1D;--green:#5CC592;--green-soft:#17301F;--amber:#E0AC4F;--amber-soft:#34290F}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 "Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+a{color:inherit;text-decoration:none}
+h1{font-size:26px;line-height:1.2;font-weight:700;letter-spacing:-.02em;margin:0}
+h2{font-size:15px;font-weight:600;margin:0}
+p{margin:0}
+small,.muted{color:var(--muted)}
+small{font-size:13px}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){.btn.primary{color:#101225}}
+.btn.danger{color:var(--red)}
+.btn.sm{height:32px;padding:0 10px;font-size:13px}
+.btn:disabled{opacity:.55;cursor:default}
+.link{background:none;border:0;padding:0;color:var(--accent);font-weight:600;cursor:pointer}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;font-size:13px;font-weight:600;margin-bottom:5px}
+input,select,textarea{width:100%;min-height:40px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+textarea{min-height:92px;resize:vertical}
+input[type=range]{padding:0;border:0;min-height:28px;accent-color:var(--accent);background:none}
+input[type=checkbox]{width:auto;min-height:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+.app{display:grid;grid-template-columns:228px minmax(0,1fr);min-height:100dvh}
+.side{position:sticky;top:0;height:100dvh;border-right:1px solid var(--line);padding:20px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.02em;padding:0 10px 18px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--muted);font-weight:500}
+.nav svg,.tab svg,.icon svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.nav.on{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.side .who{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px}
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 28px;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .ttl{font-weight:600;flex:none}
+.top .search{flex:1;max-width:340px;margin-left:auto}
+.icon{position:relative;display:grid;place-items:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--surface);cursor:pointer;flex:none}
+.count{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center}
+.page{padding:26px 28px 80px;max-width:940px}
+.tabbar{display:none}
+@media (max-width:820px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side{display:none}
+  .top{padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .top .ttl{display:none}
+  .top .search{max-width:none;margin:0}
+  .page{padding:18px 16px 110px}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px))}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;font-weight:600;color:var(--muted)}
+  .tab.on{color:var(--accent)}
+  .two{grid-template-columns:1fr}
+  h1{font-size:23px}
+}
+
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:20px}
+.sec{margin-top:28px}
+.sec>.sh{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--line);min-height:52px}
+.row:first-child{border-top:0}
+.grow{flex:1;min-width:0}
+.grow b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grow.wrap b{white-space:normal}
+.empty{padding:22px 14px;color:var(--muted);text-align:center}
+.st{width:10px;height:10px;border-radius:50%;flex:none;border:2px solid var(--muted)}
+.st-in_progress{border-color:var(--accent);background:linear-gradient(90deg,var(--accent) 50%,transparent 50%)}
+.st-blocked{border-color:var(--red);background:var(--red)}
+.st-completed{border-color:var(--green);background:var(--green)}
+.due{font-size:13px;color:var(--muted);flex:none}
+.due.late{color:var(--red);font-weight:600}
+.due.now{color:var(--accent);font-weight:600}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600;background:var(--line);color:var(--muted);flex:none;white-space:nowrap}
+.pill.blue{background:var(--accent-soft);color:var(--accent)}
+.pill.red{background:var(--red-soft);color:var(--red)}
+.pill.green{background:var(--green-soft);color:var(--green)}
+.pill.amber{background:var(--amber-soft);color:var(--amber)}
+.av{border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;flex:none;object-fit:cover;overflow:hidden}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.stats div{padding:14px 16px;border-left:1px solid var(--line)}
+.stats div:first-child{border-left:0}
+.stats b{display:block;font-size:24px;line-height:1.1;font-weight:700;letter-spacing:-.02em}
+@media (max-width:520px){.stats{grid-template-columns:1fr 1fr}.stats div:nth-child(3){border-left:0}.stats div:nth-child(n+3){border-top:1px solid var(--line)}}
+.seg{display:flex;gap:4px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px}
+.seg button{flex:none;height:34px;padding:0 12px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted);font-weight:600;font-size:14px;cursor:pointer}
+.seg button.on{background:var(--surface);border-color:var(--line);color:var(--ink)}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px 20px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.kv label{display:block;font-size:13px;color:var(--muted);margin-bottom:3px}
+.kv select{min-height:34px;padding:4px 8px}
+.back{display:inline-block;color:var(--muted);font-weight:600;font-size:14px;margin-bottom:10px}
+.prose{white-space:pre-wrap;overflow-wrap:anywhere;max-width:68ch}
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.card{display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.cal .dow{padding:8px 0;text-align:center;font-size:12px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--line)}
+.cal button{min-height:58px;border:0;border-top:1px solid var(--line);border-left:1px solid var(--line);background:none;padding:6px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px}
+.cal button:nth-child(7n+1){border-left:0}
+.cal button.sel{background:var(--accent-soft)}
+.cal button.tod span{background:var(--accent);color:#fff;border-radius:50%;width:24px;height:24px;display:grid;place-items:center}
+.cal button span{font-size:13px;font-weight:600;width:24px;height:24px;display:grid;place-items:center}
+.dots{display:flex;gap:3px}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.dots i.leave{background:var(--amber)}
+.dots i.event{background:var(--green)}
+.modal{position:fixed;inset:0;z-index:20;background:rgba(10,12,20,.45);display:grid;place-items:center;padding:16px}
+.sheet{width:100%;max-width:520px;max-height:calc(100dvh - 32px);overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:22px}
+.sheet h2{font-size:18px;margin-bottom:16px}
+.sheet .foot{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.note{padding:10px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:13px;font-weight:600;margin-bottom:14px}
+#toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;font-size:14px;max-width:calc(100vw - 32px)}
+.auth{min-height:100dvh;display:grid;place-items:center;padding:24px 18px}
+.auth-card{width:100%;max-width:400px}
+.auth-card h1{margin-bottom:6px}
+.auth-card .sub{color:var(--muted);margin-bottom:22px}
+.auth-card .alt{margin-top:16px;font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="modal" class="modal" hidden><div class="sheet" id="sheet"></div></div>
+<div id="toast" hidden></div>
+<script>
+const sb = supabase.createClient('https://swsgehwrsfftqobdjpff.supabase.co', 'sb_publishable_A_XD_57MohmK0zGlc6zkwg_4Kjyh82h');
+const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash)};
+const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',member:'Team member'};
+const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',completed:'Completed'};
+const PRIO = {low:'Low',medium:'Medium',high:'High',urgent:'Urgent'};
+const LTYPE = {casual:'Casual leave',sick:'Sick leave',personal:'Personal leave',emergency:'Emergency leave',other:'Other'};
+const VIS = {private:'Private',team:'Assigned team',everyone:'Everyone'};
+const ICON = {
+  home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  tasks:'<path d="M10 6h10M10 12h10M10 18h10M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
+  leave:'<path d="M14 4h5v16h-5M10 8l4 4-4 4M14 12H4"/>',
+  people:'<path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 19v-1a4 4 0 0 0-3-3.8M16 3.2a3.5 3.5 0 0 1 0 6.6"/>',
+  calendar:'<path d="M8 3v4M16 3v4M4 10h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>',
+  activity:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  settings:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4"/>',
+  bell:'<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7M10 20a2 2 0 0 0 4 0"/>',
+  more:'<path d="M5 12h.01M12 12h.01M19 12h.01"/>'
+};
+const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2,'0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const today = () => ymd(new Date());
+const addDays = (s,n) => { const d = new Date(s+'T00:00'); d.setDate(d.getDate()+n); return ymd(d); };
+const fmt = s => s ? new Date(s+'T00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'}) : 'Not set';
+const fmtLong = s => new Date(s+'T00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
+const ago = ts => { const s=(Date.now()-new Date(ts))/1e3; if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+'m ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; if(s<604800)return Math.floor(s/86400)+'d ago'; return new Date(ts).toLocaleDateString('en-IN',{day:'numeric',month:'short'}); };
+const P = id => S.people.find(p => p.id === id);
+const nm = id => P(id)?.full_name || 'Someone';
+const D = id => S.depts.find(d => d.id === id)?.name || '';
+const leader = p => ['founder','cofounder','director'].includes(p?.role);
+const isLead = () => leader(S.me);
+const onLeave = id => { const t = today(); return S.offs.some(o => o.user_id===id && o.start_date<=t && o.end_date>=t); };
+const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && a.role==='member')); };
+const canCreate = () => isLead() || S.me.can_assign;
+const canEditTask = t => t.created_by===S.me.id || S.me.role==='founder';
+const canUpdateTask = t => canEditTask(t) || t.assigned_to===S.me.id;
+const canManage = p => S.me.role==='founder' || (S.me.role==='director' && p.role==='member' && p.id!==S.me.id);
+const opts = (obj, sel) => Object.entries(obj).map(([k,v]) => `<option value="${k}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
+const deptOpts = sel => `<option value="">No department</option>` + S.depts.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
+
+function av(p, size=32){
+  const st = `width:${size}px;height:${size}px;font-size:${Math.round(size*.4)}px`;
+  if (p?.avatar_url) return `<img class="av" style="${st}" src="${esc(p.avatar_url)}" alt="">`;
+  const ini = (p?.full_name||'?').split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+  return `<span class="av" style="${st}">${esc(ini)}</span>`;
+}
+let toastT;
+function toast(m){ const t=$('#toast'); t.textContent=m; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,3800); }
+async function q(promise){ const {data,error} = await promise; if(error){ toast(error.message); error.shown=true; throw error; } return data; }
+async function send(e, fn){
+  e.preventDefault();
+  const b = e.target.querySelector('[type=submit]'); if(b) b.disabled = true;
+  try { await fn(Object.fromEntries(new FormData(e.target)), e.target); }
+  catch(err){ if(!err.shown) toast(err.message || 'Something went wrong. Try again.'); }
+  finally { if(b) b.disabled = false; }
+  return false;
+}
+async function run(fn){ try { await fn(); } catch(err){ if(!err.shown) toast(err.message || 'Something went wrong. Try again.'); } }
+function openModal(html){ $('#sheet').innerHTML = html; $('#modal').hidden = false; }
+function closeModal(){ $('#modal').hidden = true; $('#sheet').innerHTML = ''; }
+$('#modal').addEventListener('click', e => { if(e.target.id==='modal') closeModal(); });
+const go = h => { if(location.hash === '#'+h) route(); else location.hash = h; };
+
+/* ---------- Sign in, account requests ---------- */
+function authView(){
+  const m = S.authMode, msg = S.authMsg ? `<div class="note">${esc(S.authMsg)}</div>` : '';
+  let body = '';
+  if (m==='login') body = `<h1>Sign in</h1><p class="sub">LaunchPad 30 team workspace</p>${msg}
+    <form onsubmit="return send(event,doLogin)">
+      <label class="field"><span>Work email</span><input name="email" type="email" autocomplete="email" required></label>
+      <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary" type="submit" style="width:100%">Sign in</button>
+    </form>
+    <p class="alt"><button class="link" onclick="setAuth('forgot')">Forgot password</button></p>
+    <p class="alt">New to the team? <button class="link" onclick="setAuth('signup')">Request an account</button></p>`;
+  if (m==='signup') body = `<h1>Request an account</h1><p class="sub">A leadership member approves each request before you can sign in.</p>
+    <form onsubmit="return send(event,doSignup)">
+      <label class="field"><span>Full name</span><input name="full_name" autocomplete="name" required></label>
+      <label class="field"><span>Work email</span><input name="email" type="email" autocomplete="email" required></label>
+      <label class="field"><span>Phone number</span><input name="phone" type="tel" autocomplete="tel" required></label>
+      <div class="two">
+        <label class="field"><span>Department</span><select name="department_id" required><option value="">Choose</option>${S.depts.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Designation</span><input name="designation" required></label>
+      </div>
+      <label class="field"><span>Password</span><input name="password" type="password" minlength="8" autocomplete="new-password" required><small>At least 8 characters</small></label>
+      <button class="btn primary" type="submit" style="width:100%">Request account</button>
+    </form>
+    <p class="alt">Already approved? <button class="link" onclick="setAuth('login')">Sign in</button></p>`;
+  if (m==='forgot') body = `<h1>Reset password</h1><p class="sub">We'll email you a link to set a new password.</p>
+    <form onsubmit="return send(event,doForgot)">
+      <label class="field"><span>Work email</span><input name="email" type="email" required></label>
+      <button class="btn primary" type="submit" style="width:100%">Send reset link</button>
+    </form><p class="alt"><button class="link" onclick="setAuth('login')">Back to sign in</button></p>`;
+  if (m==='reset') body = `<h1>Set a new password</h1><p class="sub">Choose a password with at least 8 characters.</p>
+    <form onsubmit="return send(event,doReset)">
+      <label class="field"><span>New password</span><input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+      <button class="btn primary" type="submit" style="width:100%">Save password</button>
+    </form>`;
+  $('#root').innerHTML = `<div class="auth"><div class="auth-card">${body}</div></div>`;
+}
+function setAuth(m){ S.authMode = m; S.authMsg = ''; authView(); }
+async function doLogin(f){
+  const {error} = await sb.auth.signInWithPassword({email:f.email.trim(), password:f.password});
+  if (error) throw new Error(error.message === 'Email not confirmed' ? 'Confirm your email first. Check your inbox for the link.' : error.message);
+  S.authMsg = ''; await boot();
+}
+async function doSignup(f){
+  const {data,error} = await sb.auth.signUp({email:f.email.trim(), password:f.password, options:{emailRedirectTo:location.origin+location.pathname, data:{full_name:f.full_name.trim(), phone:f.phone.trim(), department_id:f.department_id, designation:f.designation.trim()}}});
+  if (error) throw error;
+  if (data.session) return boot();
+  S.authMode='login'; S.authMsg='Request sent. Confirm your email from the link we sent, then sign in once leadership approves you.'; authView();
+}
+async function doForgot(f){
+  const {error} = await sb.auth.resetPasswordForEmail(f.email.trim(), {redirectTo:location.origin+location.pathname});
+  if (error) throw error;
+  S.authMode='login'; S.authMsg='Reset link sent. Open it from your email on this device.'; authView();
+}
+async function doReset(f){
+  const {error} = await sb.auth.updateUser({password:f.password});
+  if (error) throw error;
+  S.recovery=false; history.replaceState(null,'',location.pathname); toast('Password saved'); await boot();
+}
+async function signOut(){ await sb.auth.signOut(); S.me=null; S.authMode='login'; S.authMsg=''; closeModal(); authView(); }
+function gateView(){
+  const s = S.me.status;
+  const t = s==='pending' ? ['Waiting for approval','Your request is with the leadership team. You can sign in as soon as they approve it.']
+    : s==='rejected' ? ['Request not approved','Your account request was declined. Speak to the leadership team if this looks wrong.']
+    : ['Account inactive','Your account has been deactivated. Speak to the leadership team to restore access.'];
+  $('#root').innerHTML = `<div class="auth"><div class="auth-card"><h1>${t[0]}</h1><p class="sub">${t[1]}</p>
+    <div style="display:flex;gap:8px"><button class="btn primary" onclick="boot()">Check again</button><button class="btn" onclick="signOut()">Sign out</button></div></div></div>`;
+}
+
+/* ---------- Data ---------- */
+async function loadAll(){
+  const [people,depts,tasks,leaves,offs,notes,acts,events] = await Promise.all([
+    q(sb.from('profiles').select('*').order('full_name')),
+    q(sb.from('departments').select('*').order('name')),
+    q(sb.from('tasks').select('*').order('deadline',{ascending:true,nullsFirst:false})),
+    q(sb.from('leaves').select('*').order('created_at',{ascending:false})),
+    q(sb.rpc('approved_leaves')),
+    q(sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(60)),
+    q(sb.from('activity').select('*').order('created_at',{ascending:false}).limit(200)),
+    q(sb.from('events').select('*').order('event_date'))
+  ]);
+  Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events});
+  S.me = people.find(p => p.id===S.me.id) || S.me;
+}
+async function refresh(){ await loadAll(); if(S.me.status!=='active') return gateView(); route(); }
+async function boot(){
+  if (!S.depts.length) { const {data} = await sb.from('departments').select('*').order('name'); S.depts = data || []; }
+  const {data:{session}} = await sb.auth.getSession();
+  if (S.recovery && session) { S.authMode='reset'; return authView(); }
+  if (!session) { S.me=null; return authView(); }
+  const {data:me,error} = await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
+  if (error || !me) { toast(error?.message || 'Your profile could not be loaded. Sign in again.'); await sb.auth.signOut(); return authView(); }
+  S.me = me;
+  if (me.status!=='active') return gateView();
+  try { await loadAll(); } catch(e){ return; }
+  shell(); route();
+}
+sb.auth.onAuthStateChange(ev => { if(ev==='PASSWORD_RECOVERY'){ S.recovery=true; S.authMode='reset'; authView(); } });
+
+/* ---------- Shell and routing ---------- */
+const NAV = [['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['calendar','Calendar'],['activity','Activity']];
+function shell(){
+  const items = NAV.concat(S.me.role==='founder' ? [['settings','Settings']] : []);
+  $('#root').innerHTML = `<div class="app">
+    <aside class="side"><div class="brand">LaunchPad 30</div>
+      ${items.map(([k,l]) => `<a class="nav" data-nav="${k}" href="#${k}">${svg(k)}${l}</a>`).join('')}
+      <a class="who nav" data-nav="person" href="#person/${S.me.id}" id="who"></a>
+    </aside>
+    <div class="main">
+      <header class="top"><span class="ttl" id="ttl"></span>
+        <input class="search" id="search" type="search" placeholder="Search tasks and people" aria-label="Search tasks and people" oninput="S.q=this.value.trim();route()">
+        <a class="icon" href="#inbox" aria-label="Notifications">${svg('bell')}<span class="count" id="bell" hidden></span></a>
+      </header>
+      <main class="page" id="page"></main>
+    </div>
+    <nav class="tabbar">${[['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['more','More']].map(([k,l]) => `<a class="tab" data-nav="${k}" href="#${k}">${svg(k)}${l}</a>`).join('')}</nav>
+  </div>`;
+}
+const VIEWS = {home:['Home',homeView],tasks:['Tasks',tasksView],task:['Tasks',taskView],leave:['Leave',leaveView],people:['People',peopleView],person:['People',personView],calendar:['Calendar',calView],activity:['Activity',actView],inbox:['Notifications',inboxView],settings:['Settings',settingsView],more:['More',moreView]};
+function route(){
+  if (!S.me || S.me.status!=='active' || !$('#page')) return;
+  const [v,id] = (location.hash.slice(1) || 'home').split('/');
+  const [title,fn] = VIEWS[v] || VIEWS.home;
+  $('#ttl').textContent = S.q ? 'Search' : title;
+  $('#who').innerHTML = `${av(S.me,28)}<span class="grow"><b>${esc(S.me.full_name)}</b></span>`;
+  const key = v==='task' ? 'tasks' : v;
+  document.querySelectorAll('[data-nav]').forEach(a => {
+    const k = a.dataset.nav;
+    a.classList.toggle('on', k===key && (k!=='person' || id===S.me.id) || (k==='more' && ['calendar','activity','inbox','settings','person'].includes(v)));
+  });
+  const n = S.notes.filter(x => !x.read).length;
+  $('#bell').hidden = !n; $('#bell').textContent = n > 9 ? '9+' : n;
+  $('#page').innerHTML = S.q ? searchView() : fn(id);
+  if (!S.q && v==='task' && id) loadTaskExtras(id);
+}
+window.addEventListener('hashchange', () => { S.q=''; const s=$('#search'); if(s) s.value=''; route(); window.scrollTo(0,0); });
+setInterval(async () => {
+  if (!S.me || S.me.status!=='active' || document.hidden) return;
+  const {data} = await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(60);
+  if (data) { S.notes = data; const n = data.filter(x=>!x.read).length, b=$('#bell'); if(b){ b.hidden=!n; b.textContent = n>9?'9+':n; } }
+}, 60000);
+
+/* ---------- Shared pieces ---------- */
+function due(t){
+  if (!t.deadline) return '';
+  const td = today(), c = t.status==='completed' ? '' : t.deadline<td ? ' late' : t.deadline===td ? ' now' : '';
+  return `<span class="due${c}">${t.deadline===td ? 'Today' : fmt(t.deadline)}</span>`;
+}
+function prio(t){ return t.priority==='urgent' ? '<span class="pill red">Urgent</span>' : t.priority==='high' ? '<span class="pill amber">High</span>' : ''; }
+function taskRow(t){
+  return `<a class="row" href="#task/${t.id}"><span class="st st-${t.status}" title="${STATUS[t.status]}"></span>
+    <span class="grow"><b>${esc(t.title)}</b><small>${esc(nm(t.assigned_to))}${t.is_leadership ? ', leadership' : ''}</small></span>${prio(t)}${due(t)}</a>`;
+}
+const list = (rows, empty) => `<div class="list">${rows.length ? rows.join('') : `<div class="empty">${empty}</div>`}</div>`;
+const sec = (title, body, right='') => `<section class="sec"><div class="sh"><h2>${title}</h2>${right}</div>${body}</section>`;
+function leavePill(s){ return `<span class="pill ${({pending:'amber',approved:'green',rejected:'red',cancelled:''})[s]}">${s[0].toUpperCase()+s.slice(1)}</span>`; }
+function leaveRow(l, showName){
+  const mine = l.user_id===S.me.id, t = today();
+  let actions = '';
+  if (l.status==='pending' && canApprove(l)) actions += `<button class="btn sm primary" onclick="decideLeave('${l.id}','approved')">Approve</button><button class="btn sm danger" onclick="rejectForm('${l.id}')">Reject</button>`;
+  if (mine && (l.status==='pending' || (l.status==='approved' && l.end_date>=t))) actions += `<button class="btn sm" onclick="cancelLeave('${l.id}')">Cancel leave</button>`;
+  return `<div class="row" style="flex-wrap:wrap">${showName ? av(P(l.user_id),32) : ''}
+    <span class="grow wrap" style="min-width:180px"><b>${showName ? esc(nm(l.user_id))+', ' : ''}${fmt(l.start_date)}${l.end_date!==l.start_date ? ' to '+fmt(l.end_date) : ''} (${l.days} day${l.days>1?'s':''})</b>
+      <small>${LTYPE[l.leave_type]}: ${esc(l.reason)}${l.status==='rejected' && l.rejection_reason ? '<br>Rejected: '+esc(l.rejection_reason) : ''}${l.decided_by && l.status==='approved' && l.decided_by!==l.user_id ? '<br>Approved by '+esc(nm(l.decided_by)) : ''}
+      ${l.attachment_path ? `<br><button class="link" onclick="openFile('${esc(l.attachment_path)}')">${esc(l.attachment_name || 'Attachment')}</button>` : ''}</small></span>
+    ${leavePill(l.status)}<span style="display:flex;gap:6px">${actions}</span></div>`;
+}
+function actRow(a){
+  const href = a.entity_type==='task' ? '#task/'+a.entity_id : a.entity_type==='leave' ? '#leave' : '#people';
+  return `<a class="row" href="${href}">${av(P(a.actor_id),28)}<span class="grow wrap"><b style="font-weight:500">${esc(a.message)}</b></span><span class="due">${ago(a.created_at)}</span></a>`;
+}
+async function openFile(path){
+  const w = window.open('', '_blank');
+  const {data,error} = await sb.storage.from('files').createSignedUrl(path, 120);
+  if (error) { if(w) w.close(); return toast(error.message); }
+  if (w) w.location = data.signedUrl; else location.href = data.signedUrl;
+}
+const safeName = n => n.replace(/[^\w.\-]+/g,'_').slice(-80);
+
+/* ---------- Home ---------- */
+function homeView(){
+  const t = today(), all = S.tasks.filter(x => !x.archived);
+  const mine = all.filter(x => x.assigned_to===S.me.id), open = mine.filter(x => x.status!=='completed');
+  const late = open.filter(x => x.deadline && x.deadline<t), now = open.filter(x => x.deadline===t);
+  const next = open.filter(x => x.deadline && x.deadline>t), loose = open.filter(x => !x.deadline);
+  const soon = all.filter(x => x.assigned_to!==S.me.id && x.status!=='completed' && x.deadline && x.deadline>=t && x.deadline<=addDays(t,7));
+  const approvals = S.leaves.filter(l => l.status==='pending' && canApprove(l));
+  const requests = ['founder','director'].includes(S.me.role) ? S.people.filter(p => p.status==='pending') : [];
+  const h = new Date().getHours(), hi = h<12 ? 'Good morning' : h<17 ? 'Good afternoon' : 'Good evening';
+  const line = open.length ? [now.length && `${now.length} due today`, late.length && `${late.length} overdue`, `${open.length} open in total`].filter(Boolean).join(', ')+'.' : 'Nothing is assigned to you right now.';
+  let out = `<div class="head"><div><h1>${hi}, ${esc(S.me.full_name.split(' ')[0])}</h1><p class="muted" style="margin-top:4px">${line}</p></div>
+    ${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
+    <div class="stats"><div><b>${all.length}</b><small>Total tasks</small></div><div><b>${all.filter(x=>x.status==='in_progress').length}</b><small>In progress</small></div>
+      <div><b>${all.filter(x=>x.status==='completed').length}</b><small>Completed</small></div><div><b>${all.filter(x=>x.status!=='completed'&&x.deadline&&x.deadline<t).length}</b><small>Overdue</small></div></div>`;
+  if (requests.length) out += sec('Account requests', list(requests.map(accountRow)));
+  if (approvals.length) out += sec('Leave to review', list(approvals.map(l => leaveRow(l,true))));
+  if (late.length) out += sec('Overdue', list(late.map(taskRow)));
+  out += sec('Due today', list(now.map(taskRow), 'Nothing due today.'));
+  if (next.length) out += sec('Upcoming', list(next.map(taskRow)));
+  if (loose.length) out += sec('No deadline', list(loose.map(taskRow)));
+  out += `<p class="muted" style="margin-top:10px">${mine.filter(x=>x.status==='in_progress').length} of your tasks in progress, ${mine.filter(x=>x.status==='completed').length} completed.</p>`;
+  out += sec('Team deadlines this week', list(soon.slice(0,8).map(taskRow), 'No team deadlines in the next 7 days.'), `<a class="link" href="#tasks" onclick="S.taskTab='team'">All team tasks</a>`);
+  out += sec('Recent activity', list(S.acts.slice(0,6).map(actRow), 'Activity shows up here as the team works.'), `<a class="link" href="#activity">See all</a>`);
+  return out;
+}
+
+/* ---------- Tasks ---------- */
+function tasksView(){
+  const tabs = [['mine','Assigned to me']];
+  if (canCreate()) tabs.push(['byme','Assigned by me']);
+  tabs.push(['team','Team']);
+  if (isLead()) tabs.push(['lead','Leadership']);
+  tabs.push(['arch','Archived']);
+  if (!tabs.some(x => x[0]===S.taskTab)) S.taskTab = 'mine';
+  const tab = S.taskTab, st = S.taskStatus;
+  let rows = S.tasks.filter(t => tab==='arch' ? t.archived : !t.archived);
+  if (tab==='mine') rows = rows.filter(t => t.assigned_to===S.me.id);
+  if (tab==='byme') rows = rows.filter(t => t.created_by===S.me.id && t.assigned_to!==S.me.id);
+  if (tab==='team') rows = rows.filter(t => !t.is_leadership);
+  if (tab==='lead') rows = rows.filter(t => t.is_leadership);
+  if (st==='open') rows = rows.filter(t => t.status!=='completed'); else if (st!=='all') rows = rows.filter(t => t.status===st);
+  const empty = tab==='lead' ? 'No leadership tasks match. These are visible only to the Founder, Co-Founder and Director.' : 'No tasks match this view.';
+  return `<div class="head"><h1>Tasks</h1>${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
+    <div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.taskTab='${k}';route()">${l}</button>`).join('')}</div>
+    <label class="field" style="max-width:220px"><select aria-label="Filter by status" onchange="S.taskStatus=this.value;route()">
+      <option value="open"${st==='open'?' selected':''}>Open tasks</option><option value="all"${st==='all'?' selected':''}>All statuses</option>${opts(STATUS, st)}</select></label>
+    ${list(rows.map(taskRow), empty)}`;
+}
+function taskView(id){
+  const t = S.tasks.find(x => x.id===id);
+  if (!t) return `<a class="back" href="#tasks">Back to tasks</a><div class="list"><div class="empty">This task doesn't exist, or you don't have access to it.</div></div>`;
+  const upd = canUpdateTask(t), edit = canEditTask(t);
+  return `<a class="back" href="#tasks">Back to tasks</a>
+    <div class="head"><div><h1>${esc(t.title)}</h1><p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      ${t.is_leadership ? '<span class="pill blue">Leadership only</span>' : `<span class="pill">${VIS[t.visibility]}</span>`}${t.archived ? '<span class="pill">Archived</span>' : ''}${prio(t)}</p></div>
+      ${edit ? `<span style="display:flex;gap:6px"><button class="btn sm" onclick="taskForm('${t.id}')">Edit task</button><button class="btn sm" onclick="setTask('${t.id}',{archived:${!t.archived}})">${t.archived ? 'Restore' : 'Archive'}</button></span>` : ''}</div>
+    <div class="kv">
+      <div><label for="tst">Status</label>${upd ? `<select id="tst" onchange="setTask('${t.id}',{status:this.value})">${opts(STATUS,t.status)}</select>` : STATUS[t.status]}</div>
+      <div><label for="tpr">Progress, <span id="pv">${t.progress}</span>%</label>${upd ? `<input id="tpr" type="range" min="0" max="100" step="5" value="${t.progress}" oninput="pv.textContent=this.value" onchange="setTask('${t.id}',{progress:+this.value})">` : ''}</div>
+      <div><label>Assigned to</label><a href="#person/${t.assigned_to}">${esc(nm(t.assigned_to))}</a></div>
+      <div><label>Created by</label><a href="#person/${t.created_by}">${esc(nm(t.created_by))}</a></div>
+      <div><label>Department</label>${esc(D(t.department_id) || 'None')}</div>
+      <div><label>Priority</label>${PRIO[t.priority]}</div>
+      <div><label>Start date</label>${fmt(t.start_date)}</div>
+      <div><label>Deadline</label>${fmt(t.deadline)}</div>
+      <div><label>Created</label>${ago(t.created_at)}</div>
+      <div><label>Last updated</label>${ago(t.updated_at)}</div>
+    </div>
+    ${t.description ? sec('Description', `<p class="prose">${esc(t.description)}</p>`) : ''}
+    ${sec('Attachments', `<div id="files"><div class="list"><div class="empty">Loading</div></div></div>`, `<label class="link">Upload file<input type="file" hidden onchange="uploadTaskFile(this,'${t.id}')"></label>`)}
+    ${sec('Comments', `<div id="comments"><div class="list"><div class="empty">Loading</div></div></div>
+      <form onsubmit="return send(event,addComment.bind(null,'${t.id}'))" style="display:flex;gap:8px;margin-top:10px"><input name="body" placeholder="Write an update" aria-label="Write an update" required><button class="btn" type="submit">Post comment</button></form>`)}
+    ${sec('History', list(S.acts.filter(a => a.entity_id===t.id).map(actRow), 'No history yet.'))}`;
+}
+async function loadTaskExtras(id){
+  const [cs, fs] = await Promise.all([
+    sb.from('task_comments').select('*').eq('task_id',id).order('created_at'),
+    sb.from('task_attachments').select('*').eq('task_id',id).order('created_at')]);
+  if (!location.hash.endsWith(id) || !$('#comments')) return;
+  $('#comments').innerHTML = list((cs.data||[]).map(c => `<div class="row" style="align-items:flex-start">${av(P(c.user_id),28)}<span class="grow wrap"><b>${esc(nm(c.user_id))} <small style="font-weight:400">${ago(c.created_at)}</small></b><span class="prose">${esc(c.body)}</span></span></div>`), 'No comments yet. Post the first update.');
+  $('#files').innerHTML = list((fs.data||[]).map(f => `<div class="row"><span class="grow"><b><button class="link" onclick="openFile('${esc(f.path)}')">${esc(f.name)}</button></b><small>${esc(nm(f.user_id))}, ${ago(f.created_at)}</small></span></div>`), 'No files attached.');
+}
+function setTask(id, patch){ return run(async () => { await q(sb.from('tasks').update(patch).eq('id',id)); await refresh(); }); }
+async function addComment(id, f, form){ await q(sb.from('task_comments').insert({task_id:id, body:f.body.trim()})); form.reset(); await refresh(); }
+function uploadTaskFile(input, id){ return run(async () => {
+  const file = input.files[0]; if(!file) return;
+  if (file.size > 10485760) return toast('Files can be up to 10 MB.');
+  toast('Uploading');
+  const path = `task/${id}/${crypto.randomUUID()}-${safeName(file.name)}`;
+  const {error} = await sb.storage.from('files').upload(path, file); if (error) throw error;
+  await q(sb.from('task_attachments').insert({task_id:id, name:file.name, path, size:file.size}));
+  toast('File uploaded'); await refresh();
+}); }
+function taskForm(id){
+  const t = id ? S.tasks.find(x => x.id===id) : {priority:'medium',visibility:'team',assigned_to:'',start_date:today()};
+  const who = S.people.filter(p => p.status==='active' && (isLead() || p.role==='member'));
+  openModal(`<h2>${id ? 'Edit task' : 'New task'}</h2>
+    <form onsubmit="return send(event,saveTask.bind(null,'${id||''}'))">
+      <label class="field"><span>Title</span><input name="title" value="${esc(t.title||'')}" required></label>
+      <label class="field"><span>Description</span><textarea name="description">${esc(t.description||'')}</textarea></label>
+      <div class="two">
+        <label class="field"><span>Assign to</span><select name="assigned_to" id="tf_who" required onchange="leadHint()"><option value="">Choose a person</option>${who.map(p => `<option value="${p.id}"${p.id===t.assigned_to?' selected':''}>${esc(p.full_name)} (${ROLE[p.role]})</option>`).join('')}</select></label>
+        <label class="field"><span>Department</span><select name="department_id" id="tf_dept">${deptOpts(t.department_id)}</select></label>
+      </div>
+      <div class="note" id="tf_hint" hidden>Leadership task. Only the Founder, Co-Founder and Director will ever see it.</div>
+      <div class="two">
+        <label class="field"><span>Priority</span><select name="priority">${opts(PRIO,t.priority)}</select></label>
+        <label class="field" id="tf_vis"><span>Who can see it</span><select name="visibility">${opts(VIS,t.visibility)}</select></label>
+      </div>
+      <div class="two">
+        <label class="field"><span>Start date</span><input name="start_date" type="date" value="${t.start_date||''}"></label>
+        <label class="field"><span>Deadline</span><input name="deadline" type="date" value="${t.deadline||''}"></label>
+      </div>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${id ? 'Save task' : 'Create task'}</button></div>
+    </form>`);
+  S.editCreator = id ? t.created_by : S.me.id;
+  leadHint(true);
+}
+function leadHint(keepDept){
+  const a = P($('#tf_who').value), lead = leader(a) && leader(P(S.editCreator));
+  $('#tf_hint').hidden = !lead; $('#tf_vis').hidden = lead;
+  if (a && !keepDept && a.department_id) $('#tf_dept').value = a.department_id;
+}
+async function saveTask(id, f){
+  if (f.start_date && f.deadline && f.deadline < f.start_date) throw new Error('The deadline is before the start date.');
+  const row = {title:f.title.trim(), description:f.description.trim()||null, assigned_to:f.assigned_to, department_id:f.department_id||null, priority:f.priority, visibility:f.visibility, start_date:f.start_date||null, deadline:f.deadline||null};
+  if (id) { await q(sb.from('tasks').update(row).eq('id',id)); closeModal(); toast('Task saved'); await refresh(); }
+  else { const t = await q(sb.from('tasks').insert({...row, created_by:S.me.id}).select().single()); closeModal(); toast('Task created'); await loadAll(); go('task/'+t.id); }
+}
+
+/* ---------- Leave ---------- */
+function leaveView(){
+  const approver = ['founder','director'].includes(S.me.role), t = today();
+  const mine = S.leaves.filter(l => l.user_id===S.me.id);
+  const review = S.leaves.filter(l => l.status==='pending' && canApprove(l));
+  const tabs = [['mine','My leave']];
+  if (approver) tabs.push(['review',`To review${review.length ? ' ('+review.length+')' : ''}`], ['team','Team leave']);
+  if (!tabs.some(x => x[0]===S.leaveTab)) S.leaveTab = 'mine';
+  const tab = S.leaveTab;
+  let body;
+  if (tab==='mine') {
+    const up = mine.filter(l => l.status==='approved' && l.end_date>=t);
+    body = `<div class="stats" style="grid-template-columns:repeat(3,1fr)"><div><b>${mine.filter(l=>l.status==='pending').length}</b><small>Pending</small></div><div><b>${mine.filter(l=>l.status==='approved').length}</b><small>Approved</small></div><div><b>${up.length}</b><small>Upcoming</small></div></div>
+      ${up.length ? sec('Upcoming leave', list(up.map(l => leaveRow(l)))) : ''}
+      ${sec('Leave history', list(mine.map(l => leaveRow(l)), 'You have not applied for leave yet.'))}`;
+  } else if (tab==='review') body = list(review.map(l => leaveRow(l,true)), 'No leave requests are waiting for you.');
+  else {
+    const others = S.leaves.filter(l => l.user_id!==S.me.id);
+    body = sec('Upcoming approved leave', list(others.filter(l => l.status==='approved' && l.end_date>=t).map(l => leaveRow(l,true)), 'Nobody has approved leave coming up.'))
+      + sec('All requests', list(others.map(l => leaveRow(l,true)), 'No leave requests yet.'));
+  }
+  return `<div class="head"><h1>Leave</h1><button class="btn primary" onclick="leaveForm()">${S.me.role==='founder' ? 'Mark leave' : 'Apply for leave'}</button></div>
+    ${tabs.length>1 ? `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.leaveTab='${k}';route()">${l}</button>`).join('')}</div>` : ''}${body}`;
+}
+function leaveForm(){
+  const t = today(), founder = S.me.role==='founder';
+  const to = founder ? 'Founder leave needs no approval. It is recorded straight away.' : S.me.role==='member' ? 'Your request goes to the Director for approval.' : 'Your request goes to the Founder for approval.';
+  openModal(`<h2>${founder ? 'Mark leave' : 'Apply for leave'}</h2><div class="note">${to}</div>
+    <form onsubmit="return send(event,saveLeave)">
+      <label class="field"><span>Leave type</span><select name="leave_type">${opts(LTYPE,'casual')}</select></label>
+      <div class="two">
+        <label class="field"><span>Start date</span><input name="start_date" id="lf_s" type="date" value="${t}" required onchange="leaveDays()"></label>
+        <label class="field"><span>End date</span><input name="end_date" id="lf_e" type="date" value="${t}" required onchange="leaveDays()"></label>
+      </div>
+      <p class="muted" style="margin:-6px 0 14px">Number of days: <b id="lf_d">1</b></p>
+      <label class="field"><span>Reason</span><textarea name="reason" required></textarea></label>
+      <label class="field"><span>Attachment (optional)</span><input name="file" type="file"></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${founder ? 'Mark leave' : 'Apply for leave'}</button></div>
+    </form>`);
+}
+function leaveDays(){ const s=$('#lf_s').value, e=$('#lf_e').value; if(s && e && e<s) $('#lf_e').value = s; const n = Math.round((new Date($('#lf_e').value)-new Date(s))/864e5)+1; $('#lf_d').textContent = n>0 ? n : 1; }
+async function saveLeave(f, form){
+  if (f.end_date < f.start_date) throw new Error('The end date is before the start date.');
+  const row = {leave_type:f.leave_type, start_date:f.start_date, end_date:f.end_date, reason:f.reason.trim()};
+  const file = form.file.files[0];
+  if (file) {
+    if (file.size > 10485760) throw new Error('Files can be up to 10 MB.');
+    const path = `leave/${S.me.id}/${crypto.randomUUID()}-${safeName(file.name)}`;
+    const {error} = await sb.storage.from('files').upload(path, file); if (error) throw error;
+    row.attachment_path = path; row.attachment_name = file.name;
+  }
+  await q(sb.from('leaves').insert(row));
+  closeModal(); toast(S.me.role==='founder' ? 'Leave marked' : 'Leave request sent'); S.leaveTab='mine'; await refresh();
+}
+function decideLeave(id, status){ return run(async () => { await q(sb.from('leaves').update({status}).eq('id',id)); toast('Leave approved'); await refresh(); }); }
+function rejectForm(id){
+  openModal(`<h2>Reject leave</h2><form onsubmit="return send(event,rejectLeave.bind(null,'${id}'))">
+    <label class="field"><span>Reason for rejecting</span><textarea name="reason" required></textarea></label>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Reject leave</button></div></form>`);
+}
+async function rejectLeave(id, f){ await q(sb.from('leaves').update({status:'rejected', rejection_reason:f.reason.trim()}).eq('id',id)); closeModal(); toast('Leave rejected'); await refresh(); }
+function cancelLeave(id){ if(!confirm('Cancel this leave?')) return; return run(async () => { await q(sb.from('leaves').update({status:'cancelled'}).eq('id',id)); toast('Leave cancelled'); await refresh(); }); }
+
+/* ---------- People ---------- */
+function accountRow(p){
+  return `<div class="row" style="flex-wrap:wrap">${av(p,32)}<span class="grow" style="min-width:170px"><b>${esc(p.full_name)}</b><small>${esc(p.designation||'')}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}<br>${esc(p.email)}${p.phone ? ', '+esc(p.phone) : ''}</small></span>
+    <span style="display:flex;gap:6px"><button class="btn sm primary" onclick="setAccount('${p.id}','active')">Approve account</button><button class="btn sm danger" onclick="setAccount('${p.id}','rejected')">Reject</button></span></div>`;
+}
+function setAccount(id, status){ return run(async () => { await q(sb.from('profiles').update({status}).eq('id',id)); toast(status==='active' ? 'Account approved' : 'Request rejected'); await refresh(); }); }
+function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : '<span class="pill green">Active</span>'; }
+function personCard(p){ return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small></span>${statusPill(p)}</a>`; }
+function peopleView(){
+  const admin = ['founder','director'].includes(S.me.role);
+  const pend = admin ? S.people.filter(p => p.status==='pending') : [];
+  const active = S.people.filter(p => p.status==='active'), off = admin ? S.people.filter(p => ['inactive','rejected'].includes(p.status)) : [];
+  const leads = active.filter(leader).sort((a,b) => ['founder','cofounder','director'].indexOf(a.role)-['founder','cofounder','director'].indexOf(b.role));
+  return `<div class="head"><h1>People</h1></div>
+    ${pend.length ? sec('Account requests', list(pend.map(accountRow))) : ''}
+    ${sec('Leadership', `<div class="people">${leads.map(personCard).join('')}</div>`)}
+    ${sec('Team', active.filter(p=>!leader(p)).length ? `<div class="people">${active.filter(p=>!leader(p)).map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No team members yet. Share the link so they can request an account.</div></div>`)}
+    ${off.length ? sec('Inactive and rejected', `<div class="people">${off.map(personCard).join('')}</div>`) : ''}`;
+}
+function personView(id){
+  const p = P(id || S.me.id);
+  if (!p) return `<a class="back" href="#people">Back to people</a><div class="list"><div class="empty">This person isn't in the directory.</div></div>`;
+  const me = p.id===S.me.id, tasks = S.tasks.filter(t => !t.archived && t.assigned_to===p.id && t.status!=='completed');
+  const leaves = S.leaves.filter(l => l.user_id===p.id);
+  return `<a class="back" href="#people">Back to people</a>
+    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}</p></div></div>${statusPill(p)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
+      ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}</div>
+    <div class="kv">
+      <div><label>Department</label>${esc(D(p.department_id) || 'None')}</div>
+      <div><label>Email</label><a href="mailto:${esc(p.email)}" style="overflow-wrap:anywhere">${esc(p.email)}</a></div>
+      <div><label>Phone</label>${p.phone ? `<a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : 'Not added'}</div>
+      <div><label>Joined</label>${fmt(p.joining_date)}</div>
+      <div><label>Reports to</label>${p.reports_to && P(p.reports_to) ? `<a href="#person/${p.reports_to}">${esc(nm(p.reports_to))}</a>` : 'Not set'}</div>
+      ${p.can_assign && p.role==='member' ? '<div><label>Access</label>Can assign tasks to the team</div>' : ''}
+    </div>
+    ${sec('Open tasks', list(tasks.map(taskRow), 'No open tasks you can see.'))}
+    ${me || leaves.length ? sec('Leave history', list(leaves.map(l => leaveRow(l)), 'No leave on record.')) : ''}`;
+}
+function profileForm(){
+  openModal(`<h2>Edit profile</h2><form onsubmit="return send(event,saveProfile)">
+    <label class="field"><span>Full name</span><input name="full_name" value="${esc(S.me.full_name)}" required></label>
+    <label class="field"><span>Phone number</span><input name="phone" type="tel" value="${esc(S.me.phone||'')}"></label>
+    <p class="muted" style="margin-bottom:14px">Department, designation and role are set by leadership.</p>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save profile</button></div></form>`);
+}
+async function saveProfile(f){ await q(sb.from('profiles').update({full_name:f.full_name.trim(), phone:f.phone.trim()||null}).eq('id',S.me.id)); closeModal(); toast('Profile saved'); await refresh(); }
+function uploadAvatar(input){ return run(async () => {
+  const file = input.files[0]; if(!file) return;
+  if (file.size > 3145728) return toast('Photos can be up to 3 MB.');
+  const path = `${S.me.id}/${Date.now()}-${safeName(file.name)}`;
+  const {error} = await sb.storage.from('avatars').upload(path, file); if (error) throw error;
+  const url = sb.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  await q(sb.from('profiles').update({avatar_url:url}).eq('id',S.me.id)); toast('Photo saved'); await refresh();
+}); }
+function passwordForm(){
+  openModal(`<h2>Change password</h2><form onsubmit="return send(event,savePassword)">
+    <label class="field"><span>New password</span><input name="password" type="password" minlength="8" autocomplete="new-password" required><small>At least 8 characters</small></label>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save password</button></div></form>`);
+}
+async function savePassword(f){ const {error} = await sb.auth.updateUser({password:f.password}); if (error) throw error; closeModal(); toast('Password saved'); }
+function manageForm(id){
+  const p = P(id), founder = S.me.role==='founder';
+  const bosses = S.people.filter(x => x.status==='active' && x.id!==id);
+  openModal(`<h2>Manage ${esc(p.full_name)}</h2><form onsubmit="return send(event,saveManage.bind(null,'${id}'))">
+    ${founder ? `<label class="field"><span>Role</span><select name="role">${opts(ROLE,p.role)}</select></label>` : ''}
+    <label class="field"><span>Account status</span><select name="status">${opts({active:'Active',inactive:'Inactive',pending:'Pending',rejected:'Rejected'},p.status)}</select></label>
+    <div class="two">
+      <label class="field"><span>Department</span><select name="department_id">${deptOpts(p.department_id)}</select></label>
+      <label class="field"><span>Designation</span><input name="designation" value="${esc(p.designation||'')}"></label>
+    </div>
+    <div class="two">
+      <label class="field"><span>Joining date</span><input name="joining_date" type="date" value="${p.joining_date||''}"></label>
+      <label class="field"><span>Reports to</span><select name="reports_to"><option value="">Not set</option>${bosses.map(b => `<option value="${b.id}"${b.id===p.reports_to?' selected':''}>${esc(b.full_name)}</option>`).join('')}</select></label>
+    </div>
+    ${founder ? `<label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="can_assign"${p.can_assign?' checked':''}> Can assign tasks to team members (for leads)</label>` : ''}
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save changes</button></div></form>`);
+}
+async function saveManage(id, f){
+  const row = {status:f.status, department_id:f.department_id||null, designation:f.designation.trim()||null, joining_date:f.joining_date||null, reports_to:f.reports_to||null};
+  if (S.me.role==='founder') { row.role = f.role; row.can_assign = !!f.can_assign; }
+  await q(sb.from('profiles').update(row).eq('id',id)); closeModal(); toast('Changes saved'); await refresh();
+}
+
+/* ---------- Calendar ---------- */
+function dayItems(day){
+  const a = [];
+  S.events.filter(e => e.event_date===day).forEach(e => a.push({k:'event', label:e.title, id:e.id}));
+  S.offs.filter(o => o.start_date<=day && o.end_date>=day).forEach(o => a.push({k:'leave', label:nm(o.user_id)+' on leave', href:'#person/'+o.user_id}));
+  S.tasks.filter(t => !t.archived && t.status!=='completed' && t.deadline===day).forEach(t => a.push({k:'task', label:t.title+' due', href:'#task/'+t.id}));
+  return a;
+}
+function calView(){
+  if (!S.cal) { const d = new Date(); S.cal = {y:d.getFullYear(), m:d.getMonth()}; S.calDay = today(); }
+  const {y,m} = S.cal, lead = (new Date(y,m,1).getDay()+6)%7, n = new Date(y,m+1,0).getDate(), td = today();
+  let cells = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => `<div class="dow">${d}</div>`).join('');
+  for (let i=0;i<lead;i++) cells += `<button disabled aria-hidden="true"></button>`;
+  for (let d=1; d<=n; d++) {
+    const day = `${y}-${pad(m+1)}-${pad(d)}`, its = dayItems(day), kinds = [...new Set(its.map(i => i.k))];
+    cells += `<button class="${day===S.calDay?'sel':''}${day===td?' tod':''}" onclick="S.calDay='${day}';route()" aria-label="${fmt(day)}, ${its.length} item${its.length===1?'':'s'}"><span>${d}</span><div class="dots">${kinds.map(k => `<i class="${k}"></i>`).join('')}</div></button>`;
+  }
+  const its = dayItems(S.calDay);
+  const rows = its.map(i => i.href ? `<a class="row" href="${i.href}"><span class="dots"><i class="${i.k}"></i></span><span class="grow wrap"><b style="font-weight:500">${esc(i.label)}</b></span></a>`
+    : `<div class="row"><span class="dots"><i class="event"></i></span><span class="grow wrap"><b style="font-weight:500">${esc(i.label)}</b></span>${isLead() ? `<button class="btn sm" onclick="delEvent('${i.id}')">Remove</button>` : ''}</div>`);
+  return `<div class="head"><h1>${new Date(y,m,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</h1>
+    <span style="display:flex;gap:6px"><button class="btn sm" onclick="calMove(-1)" aria-label="Previous month">Prev</button><button class="btn sm" onclick="calMove(1)" aria-label="Next month">Next</button>${isLead() ? `<button class="btn sm primary" onclick="eventForm()">Add date</button>` : ''}</span></div>
+    <div class="cal">${cells}</div>
+    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span></p>
+    ${sec(fmtLong(S.calDay), list(rows, 'Nothing on this day.'))}`;
+}
+function calMove(n){ const d = new Date(S.cal.y, S.cal.m+n, 1); S.cal = {y:d.getFullYear(), m:d.getMonth()}; S.calDay = ymd(d); route(); }
+function eventForm(){
+  openModal(`<h2>Add a team date</h2><form onsubmit="return send(event,saveEvent)">
+    <label class="field"><span>Title</span><input name="title" placeholder="Demo day, holiday, offsite" required></label>
+    <label class="field"><span>Date</span><input name="event_date" type="date" value="${S.calDay || today()}" required></label>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Add date</button></div></form>`);
+}
+async function saveEvent(f){ await q(sb.from('events').insert({title:f.title.trim(), event_date:f.event_date})); closeModal(); toast('Date added'); S.calDay = f.event_date; await refresh(); }
+function delEvent(id){ return run(async () => { await q(sb.from('events').delete().eq('id',id)); toast('Date removed'); await refresh(); }); }
+
+/* ---------- Activity, notifications, search, settings ---------- */
+function actView(){ return `<div class="head"><h1>Activity</h1></div>${list(S.acts.map(actRow), 'Activity shows up here as the team works.')}`; }
+function inboxView(){
+  const rows = S.notes.map(n => `<a class="row" href="#" onclick="openNote('${n.id}');return false"><span class="st ${n.read ? '' : 'st-in_progress'}" style="${n.read ? 'visibility:hidden' : 'background:var(--accent)'}"></span>
+    <span class="grow wrap"><b style="font-weight:${n.read?500:700}">${esc(n.title)}</b><small>${esc(n.body||'')}</small></span><span class="due">${ago(n.created_at)}</span></a>`);
+  return `<div class="head"><h1>Notifications</h1>${S.notes.some(n=>!n.read) ? `<button class="btn sm" onclick="readAll()">Mark all as read</button>` : ''}</div>${list(rows, 'You are all caught up.')}`;
+}
+async function openNote(id){
+  const n = S.notes.find(x => x.id===id); if(!n) return;
+  if (!n.read) { n.read = true; sb.from('notifications').update({read:true}).eq('id',id).then(()=>{}); }
+  go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : n.type==='account_approved' ? 'home' : 'people');
+}
+function readAll(){ return run(async () => { await q(sb.from('notifications').update({read:true}).eq('user_id',S.me.id).eq('read',false)); S.notes.forEach(n => n.read = true); route(); }); }
+function searchView(){
+  const k = S.q.toLowerCase();
+  const ts = S.tasks.filter(t => !t.archived && ((t.title+' '+(t.description||'')).toLowerCase().includes(k)));
+  const ps = S.people.filter(p => p.status==='active' && [p.full_name,p.designation,p.email,D(p.department_id)].join(' ').toLowerCase().includes(k));
+  return `<div class="head"><h1>Results for "${esc(S.q)}"</h1></div>
+    ${sec('Tasks', list(ts.map(taskRow), 'No tasks match.'))}
+    ${sec('People', ps.length ? `<div class="people">${ps.map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No people match.</div></div>`)}`;
+}
+function settingsView(){
+  if (S.me.role!=='founder') return `<div class="list"><div class="empty">Settings are managed by the Founder.</div></div>`;
+  return `<div class="head"><h1>Settings</h1></div>
+    ${sec('Departments', list(S.depts.map(d => `<div class="row"><span class="grow"><b>${esc(d.name)}</b><small>${S.people.filter(p=>p.department_id===d.id&&p.status==='active').length} people</small></span>
+      <button class="btn sm" onclick="renameDept('${d.id}')">Rename</button><button class="btn sm danger" onclick="delDept('${d.id}')">Delete</button></div>`), 'No departments yet.')
+      + `<form onsubmit="return send(event,addDept)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New department name" aria-label="New department name" required><button class="btn" type="submit">Add department</button></form>`)}
+    ${sec('Roles and access', `<div class="list"><div class="row"><span class="grow wrap"><b>Roles are set per person</b><small>Open someone in People and choose "Manage role and access" to change their role, status or reporting line, or to let a lead assign tasks.</small></span><a class="btn sm" href="#people">Open people</a></div></div>`)}`;
+}
+async function addDept(f, form){ await q(sb.from('departments').insert({name:f.name.trim()})); form.reset(); toast('Department added'); await refresh(); }
+function renameDept(id){ const d = S.depts.find(x => x.id===id), name = prompt('Department name', d.name); if(!name || !name.trim()) return; return run(async () => { await q(sb.from('departments').update({name:name.trim()}).eq('id',id)); await refresh(); }); }
+function delDept(id){ if(!confirm('Delete this department? People and tasks in it are kept, without a department.')) return; return run(async () => { await q(sb.from('departments').delete().eq('id',id)); toast('Department deleted'); await refresh(); }); }
+function moreView(){
+  const n = S.notes.filter(x => !x.read).length;
+  const items = [['calendar','Calendar','calendar'],['activity','Activity','activity'],['inbox',`Notifications${n ? ' ('+n+')' : ''}`,'bell'],['person/'+S.me.id,'My profile','people']];
+  if (S.me.role==='founder') items.push(['settings','Settings','settings']);
+  return `<div class="head"><h1>More</h1></div><div class="list">${items.map(([h,l,i]) => `<a class="row nav" style="border-radius:0;color:var(--ink)" href="#${h}">${svg(i)}<span class="grow"><b>${l}</b></span></a>`).join('')}
+    <button class="row link" style="width:100%;color:var(--red);padding:11px 14px" onclick="signOut()">Sign out</button></div>`;
+}
+boot();
+</script>
+</body>
+</html>
