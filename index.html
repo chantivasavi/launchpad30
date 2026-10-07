@@ -172,6 +172,7 @@ const canCreate = () => isLead() || S.me.can_assign;
 const canEditTask = t => t.created_by===S.me.id || S.me.role==='founder';
 const canUpdateTask = t => canEditTask(t) || t.assigned_to===S.me.id;
 const canManage = p => S.me.role==='founder' || (S.me.role==='director' && p.role==='member' && p.id!==S.me.id);
+const empId = p => p.role==='member' && p.employee_id ? esc(p.employee_id) : '';
 const opts = (obj, sel) => Object.entries(obj).map(([k,v]) => `<option value="${k}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
 const deptOpts = sel => `<option value="">No department</option>` + S.depts.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
 
@@ -578,7 +579,7 @@ function accountRow(p){
 }
 function setAccount(id, status){ return run(async () => { await q(sb.from('profiles').update({status}).eq('id',id)); toast(status==='active' ? 'Account approved' : 'Request rejected'); await refresh(); }); }
 function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : '<span class="pill green">Active</span>'; }
-function personCard(p){ return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small></span>${statusPill(p)}</a>`; }
+function personCard(p){ return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small></span>${statusPill(p)}</a>`; }
 function peopleView(){
   const admin = ['founder','director'].includes(S.me.role);
   const pend = admin ? S.people.filter(p => p.status==='pending') : [];
@@ -596,7 +597,7 @@ function personView(id){
   const me = p.id===S.me.id, tasks = S.tasks.filter(t => !t.archived && t.assigned_to===p.id && t.status!=='completed');
   const leaves = S.leaves.filter(l => l.user_id===p.id);
   return `<a class="back" href="#people">Back to people</a>
-    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}</p></div></div>${statusPill(p)}</div>
+    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}</p></div></div>${statusPill(p)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
       ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}</div>
@@ -638,6 +639,7 @@ function manageForm(id){
   const bosses = S.people.filter(x => x.status==='active' && x.id!==id);
   openModal(`<h2>Manage ${esc(p.full_name)}</h2><form onsubmit="return send(event,saveManage.bind(null,'${id}'))">
     ${founder ? `<label class="field"><span>Role</span><select name="role">${opts(ROLE,p.role)}</select></label>` : ''}
+    ${p.role==='member' ? `<label class="field"><span>Employee ID</span><input name="employee_id" value="${esc(p.employee_id||'')}" placeholder="Assigned automatically on approval"></label>` : ''}
     <label class="field"><span>Account status</span><select name="status">${opts({active:'Active',inactive:'Inactive',pending:'Pending',rejected:'Rejected'},p.status)}</select></label>
     <div class="two">
       <label class="field"><span>Department</span><select name="department_id">${deptOpts(p.department_id)}</select></label>
@@ -652,6 +654,7 @@ function manageForm(id){
 }
 async function saveManage(id, f){
   const row = {status:f.status, department_id:f.department_id||null, designation:f.designation.trim()||null, joining_date:f.joining_date||null, reports_to:f.reports_to||null};
+  if ('employee_id' in f) row.employee_id = f.employee_id.trim() || null;
   if (S.me.role==='founder') { row.role = f.role; row.can_assign = !!f.can_assign; }
   await q(sb.from('profiles').update(row).eq('id',id)); closeModal(); toast('Changes saved'); await refresh();
 }
