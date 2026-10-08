@@ -75,11 +75,28 @@ input[type=checkbox]{width:auto;min-height:0}
 .grow{flex:1;min-width:0}
 .grow b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .grow.wrap b{white-space:normal}
+.grow small{display:block}
+.tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
 .empty{padding:22px 14px;color:var(--muted);text-align:center}
 .st{width:10px;height:10px;border-radius:50%;flex:none;border:2px solid var(--muted)}
 .st-in_progress{border-color:var(--accent);background:linear-gradient(90deg,var(--accent) 50%,transparent 50%)}
 .st-blocked{border-color:var(--red);background:var(--red)}
 .st-completed{border-color:var(--green);background:var(--green)}
+.st-review{border-color:var(--amber);background:radial-gradient(circle,var(--amber) 35%,transparent 40%)}
+.banner{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:14px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);margin-bottom:16px}
+.banner .grow{min-width:200px}
+.banner b{display:block;font-weight:700;margin-bottom:2px}
+.banner.amber{background:var(--amber-soft);border-color:transparent}
+.banner.amber b{color:var(--amber)}
+.banner.green{background:var(--green-soft);border-color:transparent}
+.banner.green b{color:var(--green)}
+.banner.blue{background:var(--accent-soft);border-color:transparent}
+.banner.blue b{color:var(--accent)}
+.banner .acts{display:flex;gap:6px;flex-wrap:wrap}
+.nav .badge,.tab .badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--amber);color:#fff;font-size:11px;font-weight:700;display:inline-grid;place-items:center;margin-left:auto}
+.tab{position:relative}
+.tab .badge{position:absolute;top:0;left:calc(50% + 6px);margin:0}
+.dots i.wfh{background:transparent;box-shadow:inset 0 0 0 1.5px var(--amber)}
 .due{font-size:13px;color:var(--muted);flex:none}
 .due.late{color:var(--red);font-weight:600}
 .due.now{color:var(--accent);font-weight:600}
@@ -135,10 +152,12 @@ input[type=checkbox]{width:auto;min-height:0}
 <script>
 const sb = supabase.createClient('https://swsgehwrsfftqobdjpff.supabase.co', 'sb_publishable_A_XD_57MohmK0zGlc6zkwg_4Kjyh82h');
 const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],locs:[],wfh:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash)};
-const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',member:'Team member'};
-const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',completed:'Completed'};
+const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',techlead:'Tech lead',member:'Team member'};
+const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',review:'Submitted for review',completed:'Completed'};
+const WORK = {todo:'To do',in_progress:'In progress',blocked:'Blocked'};
 const PRIO = {low:'Low',medium:'Medium',high:'High',urgent:'Urgent'};
 const LTYPE = {casual:'Casual leave',sick:'Sick leave',personal:'Personal leave',emergency:'Emergency leave',other:'Other'};
+const LTYPE_ALL = {...LTYPE, wfh:'Work from home'};
 const VIS = {private:'Private',team:'Assigned team',everyone:'Everyone'};
 const ICON = {
   home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -166,16 +185,23 @@ const nm = id => P(id)?.full_name || 'Someone';
 const D = id => S.depts.find(d => d.id === id)?.name || '';
 const leader = p => ['founder','cofounder','director'].includes(p?.role);
 const isLead = () => leader(S.me);
-const onLeave = id => { const t = today(); return S.offs.some(o => o.user_id===id && o.start_date<=t && o.end_date>=t); };
-const leaveOn = (id,d) => S.offs.some(o => o.user_id===id && o.start_date<=d && o.end_date>=d);
-const wfhOn = (id,d) => S.wfh.some(w => w.user_id===id && w.work_date===d);
+const team = p => ['member','techlead'].includes(p?.role);
+const isWfh = l => l.kind==='wfh';
+const onLeave = id => leaveOn(id, today());
+const leaveOn = (id,d) => S.offs.some(o => o.kind!=='wfh' && o.user_id===id && o.start_date<=d && o.end_date>=d);
+const wfhOn = (id,d) => S.offs.some(o => o.kind==='wfh' && o.user_id===id && o.start_date<=d && o.end_date>=d);
 const whereOn = (id,d) => leaveOn(id,d) ? 'on leave' : wfhOn(id,d) ? 'working from home' : '';
-const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && a.role==='member')); };
-const canCreate = () => isLead() || S.me.can_assign;
+const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && team(a))); };
+const canCreate = () => isLead() || S.me.role==='techlead' || S.me.can_assign;
 const canEditTask = t => t.created_by===S.me.id || isLead();
 const canUpdateTask = t => canEditTask(t) || t.assigned_to===S.me.id;
-const canManage = p => S.me.role==='founder' || (S.me.role==='director' && p.role==='member' && p.id!==S.me.id);
-const empId = p => p.role==='member' && p.employee_id ? esc(p.employee_id) : '';
+/* Review flow: whoever does a task someone else assigned submits it; the assigner (or a leader) confirms it */
+const selfTask = t => t.assigned_to===t.created_by;
+const canReview = t => !selfTask(t) && t.assigned_to!==S.me.id && (t.created_by===S.me.id || isLead());
+const isDoer = t => t.assigned_to===S.me.id && !selfTask(t);
+const toReview = () => S.tasks.filter(t => !t.archived && t.status==='review' && t.created_by===S.me.id && t.assigned_to!==S.me.id);
+const canManage = p => S.me.role==='founder' || (S.me.role==='director' && team(p) && p.id!==S.me.id);
+const empId = p => team(p) && p.employee_id ? esc(p.employee_id) : '';
 const opts = (obj, sel) => Object.entries(obj).map(([k,v]) => `<option value="${k}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
 const deptOpts = sel => `<option value="">No department</option>` + S.depts.map(d => `<option value="${d.id}"${d.id===sel?' selected':''}>${esc(d.name)}</option>`).join('');
 
@@ -261,7 +287,7 @@ async function doReset(f){
   if (error) throw error;
   S.recovery=false; history.replaceState(null,'',location.pathname); toast('Password saved'); await boot();
 }
-async function signOut(){ await sb.auth.signOut(); S.me=null; S.authMode='login'; S.authMsg=''; closeModal(); authView(); }
+async function signOut(){ if (S.chan) { sb.removeChannel(S.chan); S.chan = null; } document.title = 'LaunchPad 30 Team'; await sb.auth.signOut(); S.me=null; S.authMode='login'; S.authMsg=''; closeModal(); authView(); }
 function gateView(){
   const s = S.me.status;
   const t = s==='pending' ? ['Waiting for approval','Your request is with the leadership team. You can sign in as soon as they approve it.']
@@ -273,22 +299,62 @@ function gateView(){
 
 /* ---------- Data ---------- */
 async function loadAll(){
-  const [people,depts,tasks,leaves,offs,notes,acts,events,locs,wfh] = await Promise.all([
+  const [people,depts,tasks,leaves,offs,notes,acts,events,locs] = await Promise.all([
     q(sb.from('profiles').select('*').order('full_name')),
     q(sb.from('departments').select('*').order('name')),
     q(sb.from('tasks').select('*').order('deadline',{ascending:true,nullsFirst:false})),
     q(sb.from('leaves').select('*').order('created_at',{ascending:false})),
-    q(sb.rpc('approved_leaves')),
+    q(sb.rpc('approved_days')),
     q(sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(60)),
     q(sb.from('activity').select('*').order('created_at',{ascending:false}).limit(200)),
     q(sb.from('events').select('*').order('event_date')),
-    q(sb.from('team_locations').select('*').gte('work_date', today())),
-    q(sb.from('wfh_days').select('*').gte('work_date', today()))
+    q(sb.from('team_locations').select('*').gte('work_date', today()))
   ]);
-  Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events,locs,wfh});
+  Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events,locs});
   S.me = people.find(p => p.id===S.me.id) || S.me;
 }
 async function refresh(){ await loadAll(); if(S.me.status!=='active') return gateView(); route(); }
+
+/* ---------- Live updates: bell, pop-ups, lists refresh without reloading ---------- */
+function setBell(){
+  const n = S.notes.filter(x => !x.read).length, b = $('#bell');
+  if (b) { b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
+  document.title = (n ? `(${n}) ` : '') + 'LaunchPad 30 Team';
+  const r = toReview().length;
+  document.querySelectorAll('[data-badge="tasks"]').forEach(e => { e.hidden = !r; e.textContent = r; });
+}
+let softT;
+function softRefresh(){
+  clearTimeout(softT);
+  softT = setTimeout(async () => {
+    try { await loadAll(); } catch(e){ return; }
+    const typing = document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && document.activeElement.id!=='search';
+    if ($('#modal').hidden && !typing) route(); else setBell();
+  }, 500);
+}
+function alertDevice(n){
+  try { if ('Notification' in window && Notification.permission==='granted' && document.hidden) new Notification(n.title, {body:n.body||'', tag:n.id}); } catch(e){}
+  try { navigator.vibrate && navigator.vibrate(120); } catch(e){}
+}
+function onNote(n){
+  if (!n || n.user_id!==S.me.id || n.read) return;
+  S.notes = [n, ...S.notes.filter(x => x.id!==n.id)];
+  setBell(); toast(n.title + (n.body ? ': ' + n.body : '')); alertDevice(n); softRefresh();
+}
+function live(){
+  if (S.chan) return;
+  S.chan = sb.channel('live-' + S.me.id)
+    .on('postgres_changes', {event:'*', schema:'public', table:'notifications', filter:'user_id=eq.' + S.me.id}, p => onNote(p.new))
+    .on('postgres_changes', {event:'*', schema:'public', table:'tasks'}, () => softRefresh())
+    .on('postgres_changes', {event:'*', schema:'public', table:'leaves'}, () => softRefresh())
+    .subscribe();
+}
+function askAlerts(){ return run(async () => {
+  if (!('Notification' in window)) return toast('This browser does not support pop-up alerts. Add the app to your home screen, then try again.');
+  const p = await Notification.requestPermission();
+  toast(p==='granted' ? 'Alerts are on for this device' : 'Alerts are blocked. Allow notifications for this site in your browser settings.');
+  route();
+}); }
 async function boot(){
   if (!S.depts.length) { const {data} = await sb.from('departments').select('*').order('name'); S.depts = data || []; }
   const {data:{session}} = await sb.auth.getSession();
@@ -299,7 +365,7 @@ async function boot(){
   S.me = me;
   if (me.status!=='active') return gateView();
   try { await loadAll(); } catch(e){ return; }
-  shell(); route();
+  shell(); route(); live();
 }
 sb.auth.onAuthStateChange(ev => { if(ev==='PASSWORD_RECOVERY'){ S.recovery=true; S.authMode='reset'; authView(); } });
 
@@ -309,7 +375,7 @@ function shell(){
   const items = NAV.concat(S.me.role==='founder' ? [['settings','Settings']] : []);
   $('#root').innerHTML = `<div class="app">
     <aside class="side"><div class="brand">LaunchPad 30</div>
-      ${items.map(([k,l]) => `<a class="nav" data-nav="${k}" href="#${k}">${svg(k)}${l}</a>`).join('')}
+      ${items.map(([k,l]) => `<a class="nav" data-nav="${k}" href="#${k}">${svg(k)}${l}${k==='tasks' ? '<span class="badge" data-badge="tasks" title="Waiting for your review" hidden></span>' : ''}</a>`).join('')}
       <a class="who nav" data-nav="person" href="#person/${S.me.id}" id="who"></a>
     </aside>
     <div class="main">
@@ -319,7 +385,7 @@ function shell(){
       </header>
       <main class="page" id="page"></main>
     </div>
-    <nav class="tabbar">${[['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['more','More']].map(([k,l]) => `<a class="tab" data-nav="${k}" href="#${k}">${svg(k)}${l}</a>`).join('')}</nav>
+    <nav class="tabbar">${[['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['more','More']].map(([k,l]) => `<a class="tab" data-nav="${k}" href="#${k}">${svg(k)}${l}${k==='tasks' ? '<span class="badge" data-badge="tasks" hidden></span>' : ''}</a>`).join('')}</nav>
   </div>`;
 }
 const VIEWS = {home:['Home',homeView],tasks:['Tasks',tasksView],task:['Tasks',taskView],leave:['Leave',leaveView],people:['People',peopleView],person:['People',personView],calendar:['Calendar',calView],activity:['Activity',actView],inbox:['Notifications',inboxView],settings:['Settings',settingsView],more:['More',moreView]};
@@ -334,8 +400,7 @@ function route(){
     const k = a.dataset.nav;
     a.classList.toggle('on', k===key && (k!=='person' || id===S.me.id) || (k==='more' && ['calendar','activity','inbox','settings','person'].includes(v)));
   });
-  const n = S.notes.filter(x => !x.read).length;
-  $('#bell').hidden = !n; $('#bell').textContent = n > 9 ? '9+' : n;
+  setBell();
   $('#page').innerHTML = S.q ? searchView() : fn(id);
   if (!S.q && v==='task' && id) loadTaskExtras(id);
 }
@@ -343,19 +408,32 @@ window.addEventListener('hashchange', () => { S.q=''; const s=$('#search'); if(s
 setInterval(async () => {
   if (!S.me || S.me.status!=='active' || document.hidden) return;
   const {data} = await sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(60);
-  if (data) { S.notes = data; const n = data.filter(x=>!x.read).length, b=$('#bell'); if(b){ b.hidden=!n; b.textContent = n>9?'9+':n; } }
-}, 60000);
+  if (!data) return;
+  const known = new Set(S.notes.filter(x => !x.read).map(x => x.id + x.created_at));
+  const fresh = data.filter(x => !x.read && !known.has(x.id + x.created_at));
+  S.notes = data; setBell();
+  if (fresh.length) { toast(fresh[0].title + (fresh[0].body ? ': ' + fresh[0].body : '')); alertDevice(fresh[0]); softRefresh(); }
+}, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.me && S.me.status==='active' && $('#page')) softRefresh(); });
 
 /* ---------- Shared pieces ---------- */
 function due(t){
   if (!t.deadline) return '';
-  const td = today(), c = t.status==='completed' ? '' : t.deadline<td ? ' late' : t.deadline===td ? ' now' : '';
+  const td = today(), c = ['completed','review'].includes(t.status) ? '' : t.deadline<td ? ' late' : t.deadline===td ? ' now' : '';
   return `<span class="due${c}">${t.deadline===td ? 'Today' : fmt(t.deadline)}</span>`;
 }
 function prio(t){ return t.priority==='urgent' ? '<span class="pill red">Urgent</span>' : t.priority==='high' ? '<span class="pill amber">High</span>' : ''; }
+function reviewPill(t){
+  if (t.status==='review') return `<span class="pill amber">${canReview(t) ? 'Needs your review' : 'Submitted'}</span>`;
+  if (t.status==='completed' && t.review_result==='approved') return '<span class="pill green">Confirmed</span>';
+  if (t.status!=='completed' && t.review_result==='changes') return '<span class="pill red">Changes requested</span>';
+  return '';
+}
 function taskRow(t){
+  const sub = t.status==='review' && t.submitted_at ? `submitted ${ago(t.submitted_at)}` : '';
+  const tags = reviewPill(t) + prio(t);
   return `<a class="row" href="#task/${t.id}"><span class="st st-${t.status}" title="${STATUS[t.status]}"></span>
-    <span class="grow"><b>${esc(t.title)}</b><small>${esc(nm(t.assigned_to))}${t.is_leadership ? ', leadership' : ''}</small></span>${prio(t)}${due(t)}</a>`;
+    <span class="grow"><b>${esc(t.title)}</b><small>${esc(nm(t.assigned_to))}${t.is_leadership ? ', leadership' : ''}${sub ? ', '+sub : ''}</small>${tags ? `<span class="tags">${tags}</span>` : ''}</span>${due(t)}</a>`;
 }
 const list = (rows, empty) => `<div class="list">${rows.length ? rows.join('') : `<div class="empty">${empty}</div>`}</div>`;
 const sec = (title, body, right='') => `<section class="sec"><div class="sh"><h2>${title}</h2>${right}</div>${body}</section>`;
@@ -363,12 +441,11 @@ function leavePill(s){ return `<span class="pill ${({pending:'amber',approved:'g
 function leaveRow(l, showName){
   const mine = l.user_id===S.me.id, t = today();
   let actions = '';
-  if (l.status==='pending' && canApprove(l)) actions += `<button class="btn sm primary" onclick="decideLeave('${l.id}','approved')">Approve</button><button class="btn sm danger" onclick="rejectForm('${l.id}')">Reject</button>`;
-  if (mine && (l.status==='pending' || (l.status==='approved' && l.end_date>=t))) actions += `<button class="btn sm" onclick="cancelLeave('${l.id}')">Cancel leave</button>`;
+  if (l.status==='pending' && canApprove(l)) actions += `<button class="btn sm primary" onclick="decideLeave('${l.id}','approved')">Approve</button><button class="btn sm danger" onclick="rejectForm('${l.id}')">Reject</button>`;  if (mine && (l.status==='pending' || (l.status==='approved' && l.end_date>=t))) actions += `<button class="btn sm" onclick="cancelLeave('${l.id}')">Cancel</button>`;
   if (canApprove(l) || (mine && S.me.role==='founder')) actions += `<button class="btn sm danger" onclick="delLeave('${l.id}')">Delete</button>`;
   return `<div class="row" style="flex-wrap:wrap">${showName ? av(P(l.user_id),32) : ''}
     <span class="grow wrap" style="min-width:180px"><b>${showName ? esc(nm(l.user_id))+', ' : ''}${fmt(l.start_date)}${l.end_date!==l.start_date ? ' to '+fmt(l.end_date) : ''} (${l.days} day${l.days>1?'s':''})</b>
-      <small>${LTYPE[l.leave_type]}: ${esc(l.reason)}${l.status==='rejected' && l.rejection_reason ? '<br>Rejected: '+esc(l.rejection_reason) : ''}${l.decided_by && l.status==='approved' && l.decided_by!==l.user_id ? '<br>Approved by '+esc(nm(l.decided_by)) : ''}
+      <small>${isWfh(l) ? '<span class="pill blue" style="margin-right:4px">Work from home</span>' : ''}${isWfh(l) ? '' : LTYPE_ALL[l.leave_type]+': '}${esc(l.reason)}${l.status==='rejected' && l.rejection_reason ? '<br>Rejected: '+esc(l.rejection_reason) : ''}${l.decided_by && l.status==='approved' && l.decided_by!==l.user_id ? '<br>Approved by '+esc(nm(l.decided_by)) : ''}
       ${l.attachment_path ? `<br><button class="link" onclick="openFile('${esc(l.attachment_path)}')">${esc(l.attachment_name || 'Attachment')}</button>` : ''}</small></span>
     ${leavePill(l.status)}<span style="display:flex;gap:6px">${actions}</span></div>`;
 }
@@ -387,26 +464,36 @@ const safeName = n => n.replace(/[^\w.\-]+/g,'_').slice(-80);
 /* ---------- Home ---------- */
 function homeView(){
   const t = today(), all = S.tasks.filter(x => !x.archived);
-  const mine = all.filter(x => x.assigned_to===S.me.id), open = mine.filter(x => x.status!=='completed');
-  const late = open.filter(x => x.deadline && x.deadline<t), now = open.filter(x => x.deadline===t);
-  const next = open.filter(x => x.deadline && x.deadline>t), loose = open.filter(x => !x.deadline);
+  const mine = all.filter(x => x.assigned_to===S.me.id), open = mine.filter(x => !['completed','review'].includes(x.status));
+  const waiting = mine.filter(x => x.status==='review'), fixes = open.filter(x => x.review_result==='changes');
+  const reviews = toReview();
+  const work = open.filter(x => x.review_result!=='changes');
+  const late = work.filter(x => x.deadline && x.deadline<t), now = work.filter(x => x.deadline===t);
+  const next = work.filter(x => x.deadline && x.deadline>t), loose = work.filter(x => !x.deadline);
   const soon = all.filter(x => x.assigned_to!==S.me.id && x.status!=='completed' && x.deadline && x.deadline>=t && x.deadline<=addDays(t,7));
   const approvals = S.leaves.filter(l => l.status==='pending' && canApprove(l));
   const requests = ['founder','director'].includes(S.me.role) ? S.people.filter(p => p.status==='pending') : [];
   const h = new Date().getHours(), hi = h<12 ? 'Good morning' : h<17 ? 'Good afternoon' : 'Good evening';
-  const line = open.length ? [now.length && `${now.length} due today`, late.length && `${late.length} overdue`, `${open.length} open in total`].filter(Boolean).join(', ')+'.' : 'Nothing is assigned to you right now.';
+  const line = (open.length || reviews.length) ? [reviews.length && `${reviews.length} waiting for your review`, fixes.length && `${fixes.length} sent back with changes`, now.length && `${now.length} due today`, late.length && `${late.length} overdue`, open.length && `${open.length} open`].filter(Boolean).join(', ')+'.' : 'Nothing is assigned to you right now.';
   let out = `<div class="head"><div><h1>${hi}, ${esc(S.me.full_name.split(' ')[0])}</h1><p class="muted" style="margin-top:4px">${line}</p></div>
     ${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
-    <div class="stats"><div><b>${all.length}</b><small>Total tasks</small></div><div><b>${all.filter(x=>x.status==='in_progress').length}</b><small>In progress</small></div>
-      <div><b>${all.filter(x=>x.status==='completed').length}</b><small>Completed</small></div><div><b>${all.filter(x=>x.status!=='completed'&&x.deadline&&x.deadline<t).length}</b><small>Overdue</small></div></div>`;
+    <div class="stats"><div><b>${all.filter(x=>x.status==='in_progress').length}</b><small>In progress</small></div><div><b>${all.filter(x=>x.status==='review').length}</b><small>Submitted for review</small></div>
+      <div><b>${all.filter(x=>x.status==='completed').length}</b><small>Completed</small></div><div><b>${all.filter(x=>!['completed','review'].includes(x.status)&&x.deadline&&x.deadline<t).length}</b><small>Overdue</small></div></div>`;
+  if (reviews.length) out += sec(`Waiting for your review (${reviews.length})`, list(reviews.map(taskRow)));
+  if (fixes.length) out += sec('Sent back with changes', list(fixes.map(taskRow)));
   out += whereBlock();
   if (requests.length) out += sec('Account requests', list(requests.map(accountRow)));
-  if (approvals.length) out += sec('Leave to review', list(approvals.map(l => leaveRow(l,true))));
+  if (approvals.length) out += sec('Leave and work from home to approve', list(approvals.map(l => leaveRow(l,true))));
+  if (waiting.length) out += sec('Submitted, waiting for confirmation', list(waiting.map(taskRow)));
   if (late.length) out += sec('Overdue', list(late.map(taskRow)));
   out += sec('Due today', list(now.map(taskRow), 'Nothing due today.'));
   if (next.length) out += sec('Upcoming', list(next.map(taskRow)));
   if (loose.length) out += sec('No deadline', list(loose.map(taskRow)));
   out += `<p class="muted" style="margin-top:10px">${mine.filter(x=>x.status==='in_progress').length} of your tasks in progress, ${mine.filter(x=>x.status==='completed').length} completed.</p>`;
+  if (canCreate()) {
+    const sent = all.filter(x => x.created_by===S.me.id && x.assigned_to!==S.me.id && !['completed','review'].includes(x.status));
+    if (sent.length) out += sec('Work you assigned, in progress', list(sent.slice(0,8).map(taskRow)), `<a class="link" href="#tasks" onclick="S.taskTab='byme'">See all</a>`);
+  }
   out += sec('Team deadlines this week', list(soon.slice(0,8).map(taskRow), 'No team deadlines in the next 7 days.'), `<a class="link" href="#tasks" onclick="S.taskTab='team'">All team tasks</a>`);
   out += sec('Recent activity', list(S.acts.slice(0,6).map(actRow), 'Activity shows up here as the team works.'), `<a class="link" href="#activity">See all</a>`);
   return out;
@@ -416,11 +503,14 @@ function whereBlock(){
   const t = today(), act = S.people.filter(p => p.status==='active');
   const day = (d, label) => {
     const loc = S.locs.find(x => x.work_date===d), mine = wfhOn(S.me.id, d);
+    const pend = S.leaves.find(l => l.user_id===S.me.id && isWfh(l) && l.status==='pending' && l.start_date<=d && l.end_date>=d);
     const home = act.filter(p => wfhOn(p.id,d) && !leaveOn(p.id,d)).map(p => esc(p.full_name)), off = act.filter(p => leaveOn(p.id,d)).map(p => esc(p.full_name));
+    const btn = mine ? '<span class="pill blue">You are working from home</span>'
+      : pend ? '<span class="pill amber">Your WFH request is pending</span>'
+      : leaveOn(S.me.id,d) ? '' : `<button class="btn sm" onclick="leaveForm('wfh','${d}')">Request work from home</button>`;
     return `<div class="row" style="flex-wrap:wrap"><span class="grow wrap" style="min-width:200px"><b>${label}: ${loc ? esc(loc.location) : 'location not set yet'}</b>
       <small>${home.length ? 'Working from home: '+home.join(', ') : 'Nobody is working from home'}${off.length ? '<br>On leave: '+off.join(', ') : ''}</small></span>
-      <span style="display:flex;gap:6px;flex-wrap:wrap">${isLead() ? `<button class="btn sm" onclick="locForm('${d}')">Set location</button>` : ''}
-      <button class="btn sm${mine ? ' primary' : ''}" onclick="toggleWfh('${d}')">${mine ? 'Cancel work from home' : 'Work from home'}</button></span></div>`;
+      <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${isLead() ? `<button class="btn sm" onclick="locForm('${d}')">Set location</button>` : ''}${btn}</span></div>`;
   };
   return sec('Where we are working', `<div class="list">${day(t,'Today')}${day(addDays(t,1),'Tomorrow')}</div>`);
 }
@@ -433,22 +523,22 @@ function locForm(d){
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save location</button></div></form>`);
 }
 async function saveLoc(f){ await q(sb.from('team_locations').upsert({work_date:f.work_date, location:f.location.trim(), set_by:S.me.id, updated_at:new Date().toISOString()})); closeModal(); toast('Location saved'); await refresh(); }
-function toggleWfh(d){ return run(async () => {
-  if (wfhOn(S.me.id, d)) await q(sb.from('wfh_days').delete().eq('user_id',S.me.id).eq('work_date',d));
-  else await q(sb.from('wfh_days').insert({user_id:S.me.id, work_date:d}));
-  await refresh();
-}); }
 
 /* ---------- Tasks ---------- */
 function tasksView(){
   const tabs = [['mine','Assigned to me']];
-  if (canCreate()) tabs.push(['byme','Assigned by me']);
+  const rv = toReview().length;
+  if (canCreate()) tabs.push(['review',`To review${rv ? ' ('+rv+')' : ''}`], ['byme','Assigned by me']);
   tabs.push(['team','Team']);
   if (isLead()) tabs.push(['lead','Leadership']);
   tabs.push(['arch','Archived']);
   if (!tabs.some(x => x[0]===S.taskTab)) S.taskTab = 'mine';
   const tab = S.taskTab, st = S.taskStatus;
   let rows = S.tasks.filter(t => tab==='arch' ? t.archived : !t.archived);
+  if (tab==='review') return `<div class="head"><h1>Tasks</h1>${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
+    <div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.taskTab='${k}';route()">${l}</button>`).join('')}</div>
+    <p class="muted" style="margin-bottom:12px">Work your team submitted on tasks you assigned. Open one to confirm it is finished or send it back with changes.</p>
+    ${list(toReview().map(taskRow), 'Nothing is waiting for your review.')}`;
   if (tab==='mine') rows = rows.filter(t => t.assigned_to===S.me.id);
   if (tab==='byme') rows = rows.filter(t => t.created_by===S.me.id && t.assigned_to!==S.me.id);
   if (tab==='team') rows = rows.filter(t => !t.is_leadership);
@@ -465,13 +555,37 @@ function taskView(id){
   const t = S.tasks.find(x => x.id===id);
   if (!t) return `<a class="back" href="#tasks">Back to tasks</a><div class="list"><div class="empty">This task doesn't exist, or you don't have access to it.</div></div>`;
   const upd = canUpdateTask(t), edit = canEditTask(t);
+  const rev = canReview(t), doer = isDoer(t), mineSelf = selfTask(t) && upd;
+  // Who can change status, and to what
+  let statusCtl = STATUS[t.status];
+  if (mineSelf || (rev && t.status!=='review')) {
+    const o = {...STATUS}; if (t.status!=='review') delete o.review;
+    statusCtl = `<select id="tst" onchange="setTask('${t.id}',{status:this.value})">${opts(o,t.status)}</select>`;
+  } else if (doer && WORK[t.status]) {
+    statusCtl = `<select id="tst" onchange="setTask('${t.id}',{status:this.value})">${opts(WORK,t.status)}</select>`;
+  }
+  const canProg = (doer || mineSelf || rev) && !['completed','review'].includes(t.status);
+  // Review banner
+  let banner = '';
+  const sn = t.submit_note ? `<span class="prose">${esc(t.submit_note)}</span>` : '';
+  if (t.status==='review' && rev) banner = `<div class="banner amber"><span class="grow"><b>${esc(nm(t.assigned_to))} submitted this ${t.submitted_at ? ago(t.submitted_at) : ''}</b>${sn || '<span class="muted">No note added. Check the comments and files below.</span>'}</span>
+      <span class="acts"><button class="btn sm primary" onclick="reviewForm('${t.id}','ok')">Confirm finished</button><button class="btn sm" onclick="reviewForm('${t.id}','changes')">Request changes</button></span></div>`;
+  else if (t.status==='review' && doer) banner = `<div class="banner blue"><span class="grow"><b>Submitted ${t.submitted_at ? ago(t.submitted_at) : ''}. Waiting for ${esc(nm(t.created_by))} to confirm.</b>${sn}</span>
+      <span class="acts"><button class="btn sm" onclick="withdraw('${t.id}')">Withdraw submission</button></span></div>`;
+  else if (t.status==='review') banner = `<div class="banner blue"><span class="grow"><b>Submitted by ${esc(nm(t.assigned_to))}, waiting for ${esc(nm(t.created_by))} to confirm</b>${sn}</span></div>`;
+  else if (t.review_result==='changes' && t.status!=='completed') banner = `<div class="banner amber"><span class="grow"><b>${esc(nm(t.reviewed_by))} asked for changes ${t.reviewed_at ? ago(t.reviewed_at) : ''}</b><span class="prose">${esc(t.review_note||'')}</span></span>
+      ${doer ? `<span class="acts"><button class="btn sm primary" onclick="submitForm('${t.id}')">Resubmit for review</button></span>` : ''}</div>`;
+  else if (t.status==='completed' && t.review_result==='approved') banner = `<div class="banner green"><span class="grow"><b>Confirmed finished by ${esc(nm(t.reviewed_by))} ${t.reviewed_at ? ago(t.reviewed_at) : ''}</b>${t.review_note ? `<span class="prose">${esc(t.review_note)}</span>` : ''}</span></div>`;
+  else if (doer && t.status!=='completed') banner = `<div class="banner"><span class="grow"><b>Done with this?</b><span class="muted">Submit it and ${esc(nm(t.created_by))} gets notified to review and confirm.</span></span>
+      <span class="acts"><button class="btn sm primary" onclick="submitForm('${t.id}')">Submit for review</button></span></div>`;
   return `<a class="back" href="#tasks">Back to tasks</a>
     <div class="head"><div><h1>${esc(t.title)}</h1><p style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
       ${t.is_leadership ? '<span class="pill blue">Leadership only</span>' : `<span class="pill">${VIS[t.visibility]}</span>`}${t.archived ? '<span class="pill">Archived</span>' : ''}${prio(t)}</p></div>
-      ${edit ? `<span style="display:flex;gap:6px"><button class="btn sm" onclick="taskForm('${t.id}')">Edit task</button><button class="btn sm" onclick="setTask('${t.id}',{archived:${!t.archived}})">${t.archived ? 'Restore' : 'Archive'}</button><button class="btn sm danger" onclick="delTask('${t.id}')">Delete task</button></span>` : ''}</div>
+      ${edit ? `<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" onclick="taskForm('${t.id}')">Edit task</button><button class="btn sm" onclick="setTask('${t.id}',{archived:${!t.archived}})">${t.archived ? 'Restore' : 'Archive'}</button><button class="btn sm danger" onclick="delTask('${t.id}')">Delete task</button></span>` : ''}</div>
+    ${banner}
     <div class="kv">
-      <div><label for="tst">Status</label>${upd ? `<select id="tst" onchange="setTask('${t.id}',{status:this.value})">${opts(STATUS,t.status)}</select>` : STATUS[t.status]}</div>
-      <div><label for="tpr">Progress, <span id="pv">${t.progress}</span>%</label>${upd ? `<input id="tpr" type="range" min="0" max="100" step="5" value="${t.progress}" oninput="pv.textContent=this.value" onchange="setTask('${t.id}',{progress:+this.value})">` : ''}</div>
+      <div><label for="tst">Status</label>${statusCtl}</div>
+      <div><label for="tpr">Progress, <span id="pv">${t.progress}</span>%</label>${canProg ? `<input id="tpr" type="range" min="0" max="100" step="5" value="${t.progress}" oninput="pv.textContent=this.value" onchange="setTask('${t.id}',{progress:+this.value})">` : ''}</div>
       <div><label>Assigned to</label>${t.assigned_to ? `<a href="#person/${t.assigned_to}">${esc(nm(t.assigned_to))}</a>` : 'Unassigned'}</div>
       <div><label>Created by</label>${t.created_by ? `<a href="#person/${t.created_by}">${esc(nm(t.created_by))}</a>` : 'Former member'}</div>
       <div><label>Department</label>${esc(D(t.department_id) || 'None')}</div>
@@ -496,6 +610,41 @@ async function loadTaskExtras(id){
   $('#files').innerHTML = list((fs.data||[]).map(f => `<div class="row"><span class="grow"><b><button class="link" onclick="openFile('${esc(f.path)}')">${esc(f.name)}</button></b><small>${esc(nm(f.user_id))}, ${ago(f.created_at)}</small></span></div>`), 'No files attached.');
 }
 function setTask(id, patch){ return run(async () => { await q(sb.from('tasks').update(patch).eq('id',id)); await refresh(); }); }
+function submitForm(id){
+  const t = S.tasks.find(x => x.id===id);
+  openModal(`<h2>Submit for review</h2><div class="note">${esc(nm(t.created_by))} gets notified right away and confirms when it is finished.</div>
+    <form onsubmit="return send(event,submitTask.bind(null,'${id}'))">
+      <label class="field"><span>What did you do?</span><textarea name="note" placeholder="Summary, links to the work, anything they should check"></textarea></label>
+      <label class="field"><span>Attach a file (optional)</span><input name="file" type="file"></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Submit for review</button></div>
+    </form>`);
+}
+async function submitTask(id, f, form){
+  const file = form.file.files[0];
+  if (file) {
+    if (file.size > 10485760) throw new Error('Files can be up to 10 MB.');
+    const path = `task/${id}/${crypto.randomUUID()}-${safeName(file.name)}`;
+    const {error} = await sb.storage.from('files').upload(path, file); if (error) throw error;
+    await q(sb.from('task_attachments').insert({task_id:id, name:file.name, path, size:file.size}));
+  }
+  await q(sb.from('tasks').update({status:'review', submit_note:f.note.trim() || null}).eq('id',id));
+  closeModal(); toast('Submitted. ' + nm(S.tasks.find(x => x.id===id)?.created_by) + ' has been notified.'); await refresh();
+}
+function reviewForm(id, kind){
+  const ok = kind==='ok';
+  openModal(`<h2>${ok ? 'Confirm task is finished' : 'Request changes'}</h2>
+    <div class="note">${ok ? 'The task closes as completed and ' : 'The task goes back to in progress and '}${esc(nm(S.tasks.find(x => x.id===id)?.assigned_to))} is notified.</div>
+    <form onsubmit="return send(event,reviewTask.bind(null,'${id}','${kind}'))">
+      <label class="field"><span>${ok ? 'Feedback (optional)' : 'What needs to change?'}</span><textarea name="note"${ok ? '' : ' required'}></textarea></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${ok ? 'Confirm finished' : 'Send back'}</button></div>
+    </form>`);
+}
+async function reviewTask(id, kind, f){
+  const note = f.note.trim() || null;
+  await q(sb.from('tasks').update(kind==='ok' ? {status:'completed', review_note:note} : {status:'in_progress', review_note:note}).eq('id',id));
+  closeModal(); toast(kind==='ok' ? 'Confirmed as finished' : 'Sent back with your notes'); await refresh();
+}
+function withdraw(id){ if(!confirm('Withdraw your submission? The task goes back to in progress.')) return; setTask(id,{status:'in_progress'}); }
 async function addComment(id, f, form){ await q(sb.from('task_comments').insert({task_id:id, body:f.body.trim()})); form.reset(); await refresh(); }
 function uploadTaskFile(input, id){ return run(async () => {
   const file = input.files[0]; if(!file) return;
@@ -510,6 +659,7 @@ function taskForm(id){
   const t = id ? S.tasks.find(x => x.id===id) : {priority:'medium',visibility:'team',assigned_to:'',start_date:today()};
   const who = S.people.filter(p => p.status==='active' && (isLead() || p.role==='member'));
   openModal(`<h2>${id ? 'Edit task' : 'New task'}</h2>
+    ${isLead() ? '' : '<div class="note">You can assign tasks to team members. When they finish, they submit it and you confirm it.</div>'}
     <form onsubmit="return send(event,saveTask.bind(null,'${id||''}'))">
       <label class="field"><span>Title</span><input name="title" value="${esc(t.title||'')}" required></label>
       <label class="field"><span>Description</span><textarea name="description">${esc(t.description||'')}</textarea></label>
@@ -550,48 +700,57 @@ async function saveTask(id, f){
 /* ---------- Leave ---------- */
 function leaveView(){
   const approver = ['founder','director'].includes(S.me.role), t = today();
-  const mine = S.leaves.filter(l => l.user_id===S.me.id);
-  const review = S.leaves.filter(l => l.status==='pending' && canApprove(l));
-  const tabs = [['mine','My leave']];
-  if (approver) tabs.push(['review',`To review${review.length ? ' ('+review.length+')' : ''}`], ['team','Team leave']);
+  const kf = S.leaveKind || 'all', byKind = l => kf==='all' || (kf==='wfh' ? isWfh(l) : !isWfh(l));
+  const mine = S.leaves.filter(l => l.user_id===S.me.id && byKind(l));
+  const review = S.leaves.filter(l => l.status==='pending' && canApprove(l) && byKind(l));
+  const tabs = [['mine','My requests']];
+  if (approver) tabs.push(['review',`To approve${review.length ? ' ('+review.length+')' : ''}`], ['team','Team']);
   if (!tabs.some(x => x[0]===S.leaveTab)) S.leaveTab = 'mine';
   const tab = S.leaveTab;
+  const mo = t.slice(0,7), wfhMonth = S.leaves.filter(l => l.user_id===S.me.id && isWfh(l) && l.status==='approved' && l.start_date.slice(0,7)===mo).reduce((a,l) => a+l.days, 0);
+  const leaveMonth = S.leaves.filter(l => l.user_id===S.me.id && !isWfh(l) && l.status==='approved' && l.start_date.slice(0,7)===mo).reduce((a,l) => a+l.days, 0);
   let body;
   if (tab==='mine') {
     const up = mine.filter(l => l.status==='approved' && l.end_date>=t);
-    body = `<div class="stats" style="grid-template-columns:repeat(3,1fr)"><div><b>${mine.filter(l=>l.status==='pending').length}</b><small>Pending</small></div><div><b>${mine.filter(l=>l.status==='approved').length}</b><small>Approved</small></div><div><b>${up.length}</b><small>Upcoming</small></div></div>
-      ${up.length ? sec('Upcoming leave', list(up.map(l => leaveRow(l)))) : ''}
-      ${sec('Leave history', list(mine.map(l => leaveRow(l)), 'You have not applied for leave yet.'))}`;
-  } else if (tab==='review') body = list(review.map(l => leaveRow(l,true)), 'No leave requests are waiting for you.');
+    body = `<div class="stats"><div><b>${S.leaves.filter(l=>l.user_id===S.me.id && l.status==='pending').length}</b><small>Pending</small></div><div><b>${leaveMonth}</b><small>Leave days this month</small></div><div><b>${wfhMonth}</b><small>WFH days this month</small></div><div><b>${up.length}</b><small>Upcoming</small></div></div>
+      ${up.length ? sec('Upcoming', list(up.map(l => leaveRow(l)))) : ''}
+      ${sec('History', list(mine.map(l => leaveRow(l)), 'No requests yet.'))}`;
+  } else if (tab==='review') body = list(review.map(l => leaveRow(l,true)), 'Nothing is waiting for your approval.');
   else {
-    const others = S.leaves.filter(l => l.user_id!==S.me.id);
-    body = sec('Upcoming approved leave', list(others.filter(l => l.status==='approved' && l.end_date>=t).map(l => leaveRow(l,true)), 'Nobody has approved leave coming up.'))
-      + sec('All requests', list(others.map(l => leaveRow(l,true)), 'No leave requests yet.'));
+    const others = S.leaves.filter(l => l.user_id!==S.me.id && byKind(l));
+    body = sec('Upcoming approved', list(others.filter(l => l.status==='approved' && l.end_date>=t).map(l => leaveRow(l,true)), 'Nothing approved coming up.'))
+      + sec('All requests', list(others.map(l => leaveRow(l,true)), 'No requests yet.'));
   }
-  return `<div class="head"><h1>Leave</h1><button class="btn primary" onclick="leaveForm()">${S.me.role==='founder' ? 'Mark leave' : 'Apply for leave'}</button></div>
-    ${tabs.length>1 ? `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.leaveTab='${k}';route()">${l}</button>`).join('')}</div>` : ''}${body}`;
+  const kinds = [['all','All'],['leave','Leave'],['wfh','Work from home']];
+  return `<div class="head"><h1>Leave and WFH</h1><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn" onclick="leaveForm('wfh')">${S.me.role==='founder' ? 'Mark WFH' : 'Request WFH'}</button><button class="btn primary" onclick="leaveForm()">${S.me.role==='founder' ? 'Mark leave' : 'Apply for leave'}</button></span></div>
+    ${tabs.length>1 ? `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.leaveTab='${k}';route()">${l}</button>`).join('')}</div>` : ''}
+    <label class="field" style="max-width:220px"><select aria-label="Show" onchange="S.leaveKind=this.value;route()">${kinds.map(([k,l]) => `<option value="${k}"${k===kf?' selected':''}>${l}</option>`).join('')}</select></label>${body}`;
 }
-function leaveForm(){
-  const t = today(), founder = S.me.role==='founder';
-  const to = founder ? 'Founder leave needs no approval. It is recorded straight away.' : S.me.role==='member' ? 'Your request goes to the Director for approval.' : 'Your request goes to the Founder for approval.';
-  openModal(`<h2>${founder ? 'Mark leave' : 'Apply for leave'}</h2><div class="note">${to}</div>
+function leaveForm(kind, day){
+  const wfh = kind==='wfh', t = day || today(), founder = S.me.role==='founder';
+  const what = wfh ? 'work from home' : 'leave';
+  const to = founder ? `Founder ${what} needs no approval. It is recorded straight away.` : team(S.me) ? 'Your request goes to the Director for approval.' : 'Your request goes to the Founder for approval.';
+  const title = wfh ? (founder ? 'Mark work from home' : 'Request work from home') : (founder ? 'Mark leave' : 'Apply for leave');
+  openModal(`<h2>${title}</h2><div class="note">${to}</div>
     <form onsubmit="return send(event,saveLeave)">
-      <label class="field"><span>Leave type</span><select name="leave_type">${opts(LTYPE,'casual')}</select></label>
+      <input type="hidden" name="kind" value="${wfh ? 'wfh' : 'leave'}">
+      ${wfh ? '' : `<label class="field"><span>Leave type</span><select name="leave_type">${opts(LTYPE,'casual')}</select></label>`}
       <div class="two">
-        <label class="field"><span>Start date</span><input name="start_date" id="lf_s" type="date" value="${t}" required onchange="leaveDays()"></label>
-        <label class="field"><span>End date</span><input name="end_date" id="lf_e" type="date" value="${t}" required onchange="leaveDays()"></label>
+        <label class="field"><span>${wfh ? 'From' : 'Start date'}</span><input name="start_date" id="lf_s" type="date" value="${t}" required onchange="leaveDays()"></label>
+        <label class="field"><span>${wfh ? 'To' : 'End date'}</span><input name="end_date" id="lf_e" type="date" value="${t}" required onchange="leaveDays()"></label>
       </div>
       <p class="muted" style="margin:-6px 0 14px">Number of days: <b id="lf_d">1</b></p>
-      <label class="field"><span>Reason</span><textarea name="reason" required></textarea></label>
-      <label class="field"><span>Attachment (optional)</span><input name="file" type="file"></label>
-      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${founder ? 'Mark leave' : 'Apply for leave'}</button></div>
+      <label class="field"><span>Reason</span><textarea name="reason" required placeholder="${wfh ? 'Why you need to work from home, and how you will be reachable' : ''}"></textarea></label>
+      ${wfh ? '' : '<label class="field"><span>Attachment (optional)</span><input name="file" type="file"></label>'}
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${founder ? 'Save' : 'Send request'}</button></div>
     </form>`);
 }
 function leaveDays(){ const s=$('#lf_s').value, e=$('#lf_e').value; if(s && e && e<s) $('#lf_e').value = s; const n = Math.round((new Date($('#lf_e').value)-new Date(s))/864e5)+1; $('#lf_d').textContent = n>0 ? n : 1; }
 async function saveLeave(f, form){
   if (f.end_date < f.start_date) throw new Error('The end date is before the start date.');
-  const row = {leave_type:f.leave_type, start_date:f.start_date, end_date:f.end_date, reason:f.reason.trim()};
-  const file = form.file.files[0];
+  const wfh = f.kind==='wfh';
+  const row = {kind: wfh ? 'wfh' : 'leave', leave_type: wfh ? 'wfh' : f.leave_type, start_date:f.start_date, end_date:f.end_date, reason:f.reason.trim()};
+  const file = form.file?.files[0];
   if (file) {
     if (file.size > 10485760) throw new Error('Files can be up to 10 MB.');
     const path = `leave/${S.me.id}/${crypto.randomUUID()}-${safeName(file.name)}`;
@@ -599,16 +758,16 @@ async function saveLeave(f, form){
     row.attachment_path = path; row.attachment_name = file.name;
   }
   await q(sb.from('leaves').insert(row));
-  closeModal(); toast(S.me.role==='founder' ? 'Leave marked' : 'Leave request sent'); S.leaveTab='mine'; await refresh();
+  closeModal(); toast(S.me.role==='founder' ? 'Saved' : 'Request sent for approval'); S.leaveTab='mine'; await refresh();
 }
-function decideLeave(id, status){ return run(async () => { await q(sb.from('leaves').update({status}).eq('id',id)); toast('Leave approved'); await refresh(); }); }
+function decideLeave(id, status){ return run(async () => { await q(sb.from('leaves').update({status}).eq('id',id)); toast('Approved'); await refresh(); }); }
 function rejectForm(id){
-  openModal(`<h2>Reject leave</h2><form onsubmit="return send(event,rejectLeave.bind(null,'${id}'))">
+  openModal(`<h2>Reject request</h2><form onsubmit="return send(event,rejectLeave.bind(null,'${id}'))">
     <label class="field"><span>Reason for rejecting</span><textarea name="reason" required></textarea></label>
-    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Reject leave</button></div></form>`);
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Reject</button></div></form>`);
 }
-async function rejectLeave(id, f){ await q(sb.from('leaves').update({status:'rejected', rejection_reason:f.reason.trim()}).eq('id',id)); closeModal(); toast('Leave rejected'); await refresh(); }
-function cancelLeave(id){ if(!confirm('Cancel this leave?')) return; return run(async () => { await q(sb.from('leaves').update({status:'cancelled'}).eq('id',id)); toast('Leave cancelled'); await refresh(); }); }
+async function rejectLeave(id, f){ await q(sb.from('leaves').update({status:'rejected', rejection_reason:f.reason.trim()}).eq('id',id)); closeModal(); toast('Request rejected'); await refresh(); }
+function cancelLeave(id){ if(!confirm('Cancel this request?')) return; return run(async () => { await q(sb.from('leaves').update({status:'cancelled'}).eq('id',id)); toast('Cancelled'); await refresh(); }); }
 
 /* ---------- People ---------- */
 function accountRow(p){
@@ -626,7 +785,7 @@ function peopleView(){
   return `<div class="head"><h1>People</h1></div>
     ${pend.length ? sec('Account requests', list(pend.map(accountRow))) : ''}
     ${sec('Leadership', `<div class="people">${leads.map(personCard).join('')}</div>`)}
-    ${sec('Team', active.filter(p=>!leader(p)).length ? `<div class="people">${active.filter(p=>!leader(p)).map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No team members yet. Share the link so they can request an account.</div></div>`)}
+    ${sec('Team', active.filter(p=>!leader(p)).length ? `<div class="people">${active.filter(p=>!leader(p)).sort((a,b) => (b.role==='techlead') - (a.role==='techlead')).map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No team members yet. Share the link so they can request an account.</div></div>`)}
     ${off.length ? sec('Inactive and rejected', `<div class="people">${off.map(personCard).join('')}</div>`) : ''}`;
 }
 function personView(id){
@@ -645,7 +804,7 @@ function personView(id){
       <div><label>Phone</label>${p.phone ? `<a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : 'Not added'}</div>
       <div><label>Joined</label>${fmt(p.joining_date)}</div>
       <div><label>Reports to</label>${p.reports_to && P(p.reports_to) ? `<a href="#person/${p.reports_to}">${esc(nm(p.reports_to))}</a>` : 'Not set'}</div>
-      ${p.can_assign && p.role==='member' ? '<div><label>Access</label>Can assign tasks to the team</div>' : ''}
+      ${(p.can_assign && p.role==='member') || p.role==='techlead' ? '<div><label>Access</label>Can assign tasks to team members</div>' : ''}
     </div>
     ${sec('Open tasks', list(tasks.map(taskRow), 'No open tasks you can see.'))}
     ${me || leaves.length ? sec('Leave history', list(leaves.map(l => leaveRow(l)), 'No leave on record.')) : ''}`;
@@ -677,7 +836,8 @@ function manageForm(id){
   const bosses = S.people.filter(x => x.status==='active' && x.id!==id);
   openModal(`<h2>Manage ${esc(p.full_name)}</h2><form onsubmit="return send(event,saveManage.bind(null,'${id}'))">
     ${founder ? `<label class="field"><span>Role</span><select name="role">${opts(ROLE,p.role)}</select></label>` : ''}
-    ${p.role==='member' ? `<label class="field"><span>Employee ID</span><input name="employee_id" value="${esc(p.employee_id||'')}" placeholder="Assigned automatically on approval"></label>` : ''}
+    ${founder ? `<p class="muted" style="margin:-6px 0 14px">Tech lead: assigns tasks to team members only (never to the Founder, Co-Founder or Director), reviews the work they assigned, and has no access to approvals, people management or leadership tasks. Their leave and WFH go to the Director.</p>` : ''}
+    ${team(p) ? `<label class="field"><span>Employee ID</span><input name="employee_id" value="${esc(p.employee_id||'')}" placeholder="Assigned automatically on approval"></label>` : ''}
     <label class="field"><span>Account status</span><select name="status">${opts({active:'Active',inactive:'Inactive',pending:'Pending',rejected:'Rejected'},p.status)}</select></label>
     <div class="two">
       <label class="field"><span>Department</span><select name="department_id">${deptOpts(p.department_id)}</select></label>
@@ -687,13 +847,13 @@ function manageForm(id){
       <label class="field"><span>Joining date</span><input name="joining_date" type="date" value="${p.joining_date||''}"></label>
       <label class="field"><span>Reports to</span><select name="reports_to"><option value="">Not set</option>${bosses.map(b => `<option value="${b.id}"${b.id===p.reports_to?' selected':''}>${esc(b.full_name)}</option>`).join('')}</select></label>
     </div>
-    ${founder ? `<label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="can_assign"${p.can_assign?' checked':''}> Can assign tasks to team members (for leads)</label>` : ''}
+    ${founder && p.role==='member' ? `<label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="can_assign"${p.can_assign?' checked':''}> Can assign tasks to team members</label>` : ''}
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save changes</button></div></form>`);
 }
 async function saveManage(id, f){
   const row = {status:f.status, department_id:f.department_id||null, designation:f.designation.trim()||null, joining_date:f.joining_date||null, reports_to:f.reports_to||null};
   if ('employee_id' in f) row.employee_id = f.employee_id.trim() || null;
-  if (S.me.role==='founder') { row.role = f.role; row.can_assign = !!f.can_assign; }
+  if (S.me.role==='founder') { row.role = f.role; if (P(id).role==='member') row.can_assign = !!f.can_assign; }
   await q(sb.from('profiles').update(row).eq('id',id)); closeModal(); toast('Changes saved'); await refresh();
 }
 
@@ -701,8 +861,8 @@ async function saveManage(id, f){
 function dayItems(day){
   const a = [];
   S.events.filter(e => e.event_date===day).forEach(e => a.push({k:'event', label:e.title, id:e.id}));
-  S.offs.filter(o => o.start_date<=day && o.end_date>=day).forEach(o => a.push({k:'leave', label:nm(o.user_id)+' on leave', href:'#person/'+o.user_id}));
-  S.tasks.filter(t => !t.archived && t.status!=='completed' && t.deadline===day).forEach(t => a.push({k:'task', label:t.title+' due', href:'#task/'+t.id}));
+  S.offs.filter(o => o.start_date<=day && o.end_date>=day).forEach(o => a.push(o.kind==='wfh' ? {k:'wfh', label:nm(o.user_id)+' working from home', href:'#person/'+o.user_id} : {k:'leave', label:nm(o.user_id)+' on leave', href:'#person/'+o.user_id}));
+  S.tasks.filter(t => !t.archived && !['completed','review'].includes(t.status) && t.deadline===day).forEach(t => a.push({k:'task', label:t.title+' due', href:'#task/'+t.id}));
   return a;
 }
 function calView(){
@@ -720,7 +880,7 @@ function calView(){
   return `<div class="head"><h1>${new Date(y,m,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</h1>
     <span style="display:flex;gap:6px"><button class="btn sm" onclick="calMove(-1)" aria-label="Previous month">Prev</button><button class="btn sm" onclick="calMove(1)" aria-label="Next month">Next</button>${isLead() ? `<button class="btn sm primary" onclick="eventForm()">Add date</button>` : ''}</span></div>
     <div class="cal">${cells}</div>
-    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span></p>
+    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="wfh"></i>&nbsp;Work from home</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span></p>
     ${sec(fmtLong(S.calDay), list(rows, 'Nothing on this day.'))}`;
 }
 function calMove(n){ const d = new Date(S.cal.y, S.cal.m+n, 1); S.cal = {y:d.getFullYear(), m:d.getMonth()}; S.calDay = ymd(d); route(); }
@@ -746,7 +906,9 @@ function delPerson(id){ if(!confirm('Delete '+nm(id)+' permanently? Their login 
 function inboxView(){
   const rows = S.notes.map(n => `<a class="row" href="#" onclick="openNote('${n.id}');return false"><span class="st ${n.read ? '' : 'st-in_progress'}" style="${n.read ? 'visibility:hidden' : 'background:var(--accent)'}"></span>
     <span class="grow wrap"><b style="font-weight:${n.read?500:700}">${esc(n.title)}</b><small>${esc(n.body||'')}</small></span><span class="due">${ago(n.created_at)}</span></a>`);
-  return `<div class="head"><h1>Notifications</h1>${S.notes.some(n=>!n.read) ? `<button class="btn sm" onclick="readAll()">Mark all as read</button>` : ''}</div>${list(rows, 'You are all caught up.')}`;
+  const canAsk = 'Notification' in window && Notification.permission==='default';
+  const alertsRow = canAsk ? `<div class="banner blue"><span class="grow"><b>Get pop-up alerts on this device</b><span class="muted">See submissions, reviews and approvals the moment they happen, even when this tab is in the background.</span></span><span class="acts"><button class="btn sm primary" onclick="askAlerts()">Turn on alerts</button></span></div>` : '';
+  return `<div class="head"><h1>Notifications</h1>${S.notes.some(n=>!n.read) ? `<button class="btn sm" onclick="readAll()">Mark all as read</button>` : ''}</div>${alertsRow}${list(rows, 'You are all caught up.')}`;
 }
 async function openNote(id){
   const n = S.notes.find(x => x.id===id); if(!n) return;
