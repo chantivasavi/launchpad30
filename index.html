@@ -510,7 +510,7 @@ function whereBlock(){
     return `<div class="row" style="flex-wrap:wrap"><span class="grow wrap" style="min-width:200px"><b>${label}: ${loc ? esc(loc.location) : 'location not set yet'}</b></span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${isLead() ? `<button class="btn sm" onclick="locForm('${d}')">Set location</button>` : ''}${btn}</span></div>`;
   };
-  return outToday() + sec('Where we are working', `<div class="list">${day(t,'Today')}</div>`);
+  return outToday() + sec('Where we are working', `<div class="list">${day(t, fmtLong(t))}</div>`);
 }
 /* Approved WFH and leave covering today, with each person's from and to dates */
 function outToday(){
@@ -713,7 +713,8 @@ function leaveView(){
   const mine = S.leaves.filter(l => l.user_id===S.me.id && byKind(l));
   const review = S.leaves.filter(l => l.status==='pending' && canApprove(l) && byKind(l));
   const tabs = [['mine','My requests']];
-  if (approver) tabs.push(['review',`To approve${review.length ? ' ('+review.length+')' : ''}`], ['team','Team']);
+  if (approver) tabs.push(['review',`To approve${review.length ? ' ('+review.length+')' : ''}`]);
+  if (isLead()) tabs.push(['team','Employees'], ['all','All requests']);
   if (!tabs.some(x => x[0]===S.leaveTab)) S.leaveTab = 'mine';
   const tab = S.leaveTab;
   const mo = t.slice(0,7), wfhMonth = S.leaves.filter(l => l.user_id===S.me.id && isWfh(l) && l.status==='approved' && l.start_date.slice(0,7)===mo).reduce((a,l) => a+l.days, 0);
@@ -725,6 +726,8 @@ function leaveView(){
       ${up.length ? sec('Upcoming', list(up.map(l => leaveRow(l)))) : ''}
       ${sec('History', list(mine.map(l => leaveRow(l)), 'No requests yet.'))}`;
   } else if (tab==='review') body = list(review.map(l => leaveRow(l,true)), 'Nothing is waiting for your approval.');
+  else if (tab==='team') return `<div class="head"><h1>Leave and WFH</h1></div>
+    <div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.leaveTab='${k}';route()">${l}</button>`).join('')}</div>${registerView()}`;
   else {
     const others = S.leaves.filter(l => l.user_id!==S.me.id && byKind(l));
     body = sec('Upcoming approved', list(others.filter(l => l.status==='approved' && l.end_date>=t).map(l => leaveRow(l,true)), 'Nothing approved coming up.'))
@@ -734,6 +737,37 @@ function leaveView(){
   return `<div class="head"><h1>Leave and WFH</h1><span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn" onclick="leaveForm('wfh')">${S.me.role==='founder' ? 'Mark WFH' : 'Request WFH'}</button><button class="btn primary" onclick="leaveForm()">${S.me.role==='founder' ? 'Mark leave' : 'Apply for leave'}</button></span></div>
     ${tabs.length>1 ? `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===tab?'on':''}" onclick="S.leaveTab='${k}';route()">${l}</button>`).join('')}</div>` : ''}
     <label class="field" style="max-width:220px"><select aria-label="Show" onchange="S.leaveKind=this.value;route()">${kinds.map(([k,l]) => `<option value="${k}"${k===kf?' selected':''}>${l}</option>`).join('')}</select></label>${body}`;
+}
+/* Leave register: every employee's leave and WFH in one place (leads only) */
+function leaveTotals(id, yr){
+  const mo = today().slice(0,7), ls = S.leaves.filter(l => l.user_id===id);
+  const ok = ls.filter(l => l.status==='approved'), inYr = l => l.start_date.slice(0,4)===yr;
+  const sum = a => a.reduce((n,l) => n + l.days, 0);
+  return {
+    leaveYr: sum(ok.filter(l => !isWfh(l) && inYr(l))), leaveMo: sum(ok.filter(l => !isWfh(l) && l.start_date.slice(0,7)===mo)),
+    wfhYr: sum(ok.filter(l => isWfh(l) && inYr(l))), pending: ls.filter(l => l.status==='pending').length,
+    last: ok.filter(l => !isWfh(l) && l.start_date<=today()).sort((a,b) => a.start_date<b.start_date?1:-1)[0], all: ls };
+}
+function registerView(){
+  const yr = S.regYear || today().slice(0,4);
+  const years = [...new Set([today().slice(0,4), ...S.leaves.map(l => l.start_date.slice(0,4))])].sort().reverse();
+  const staff = S.people.filter(p => p.id!==S.me.id && p.status!=='rejected' && p.status!=='pending' && (S.me.role==='founder' || team(p)))
+    .sort((a,b) => (a.status==='active' ? 0 : 1) - (b.status==='active' ? 0 : 1) || a.full_name.localeCompare(b.full_name));
+  const chip = (n, label, warn) => `<span style="text-align:center;min-width:64px"><b style="display:block;font-size:17px;line-height:1.2${warn ? ';color:var(--amber)' : ''}">${n}</b><small style="font-size:11px">${label}</small></span>`;
+  const rows = staff.map(p => { const s = leaveTotals(p.id, yr);
+    return `<a class="row" href="#person/${p.id}" style="flex-wrap:wrap">${av(p,36)}
+      <span class="grow" style="min-width:150px"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+', ' : ''}${esc(p.designation || ROLE[p.role])}${p.status!=='active' ? ', inactive' : ''}<br>${s.last ? 'Last leave '+fmt(s.last.start_date) : 'No leave taken'}</small></span>
+      <span style="display:flex;gap:4px">${chip(s.leaveMo,'Leave this month')}${chip(s.leaveYr,'Leave in '+yr)}${chip(s.wfhYr,'WFH in '+yr)}${chip(s.pending,'Pending', s.pending > 0)}</span></a>`; });
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><p class="muted" style="flex:1;min-width:220px">Approved days for every employee. Tap someone to see every leave and work-from-home request they have made.</p>
+    <label class="field" style="margin:0;width:120px"><select aria-label="Year" onchange="S.regYear=this.value;route()">${years.map(y => `<option${y===yr?' selected':''}>${y}</option>`).join('')}</select></label></div>
+    ${list(rows, 'No employees yet.')}`;
+}
+function personLeave(p){
+  const s = leaveTotals(p.id, today().slice(0,4)), yr = today().slice(0,4);
+  const kf = S.personKind || 'all', rows = s.all.filter(l => kf==='all' || (kf==='wfh' ? isWfh(l) : !isWfh(l)));
+  return sec('Leave and work from home', `<div class="stats" style="margin-bottom:12px"><div><b>${s.leaveMo}</b><small>Leave days this month</small></div><div><b>${s.leaveYr}</b><small>Leave days in ${yr}</small></div><div><b>${s.wfhYr}</b><small>WFH days in ${yr}</small></div><div><b>${s.pending}</b><small>Pending requests</small></div></div>
+    <div class="seg">${[['all','All ('+s.all.length+')'],['leave','Leave'],['wfh','Work from home']].map(([k,l]) => `<button class="${k===kf?'on':''}" onclick="S.personKind='${k}';route()">${l}</button>`).join('')}</div>
+    ${list(rows.map(l => leaveRow(l)), 'Nothing on record.')}`);
 }
 function leaveForm(kind, day){
   const wfh = kind==='wfh', t = day || today(), founder = S.me.role==='founder';
@@ -816,7 +850,7 @@ function personView(id){
       ${(p.can_assign && p.role==='member') || p.role==='techlead' ? '<div><label>Access</label>Can assign tasks to team members</div>' : ''}
     </div>
     ${sec('Open tasks', list(tasks.map(taskRow), 'No open tasks you can see.'))}
-    ${me || leaves.length ? sec('Leave history', list(leaves.map(l => leaveRow(l)), 'No leave on record.')) : ''}`;
+    ${me || leaves.length || (isLead() && (S.me.role==='founder' || team(p))) ? personLeave(p) : ''}`;
 }
 function profileForm(){
   openModal(`<h2>Edit profile</h2><form onsubmit="return send(event,saveProfile)">
