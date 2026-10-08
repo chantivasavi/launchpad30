@@ -504,15 +504,24 @@ function whereBlock(){
   const day = (d, label) => {
     const loc = S.locs.find(x => x.work_date===d), mine = wfhOn(S.me.id, d);
     const pend = S.leaves.find(l => l.user_id===S.me.id && isWfh(l) && l.status==='pending' && l.start_date<=d && l.end_date>=d);
-    const home = act.filter(p => wfhOn(p.id,d) && !leaveOn(p.id,d)).map(p => esc(p.full_name)), off = act.filter(p => leaveOn(p.id,d)).map(p => esc(p.full_name));
     const btn = mine ? '<span class="pill blue">You are working from home</span>'
       : pend ? '<span class="pill amber">Your WFH request is pending</span>'
       : leaveOn(S.me.id,d) ? '' : `<button class="btn sm" onclick="leaveForm('wfh','${d}')">Request work from home</button>`;
-    return `<div class="row" style="flex-wrap:wrap"><span class="grow wrap" style="min-width:200px"><b>${label}: ${loc ? esc(loc.location) : 'location not set yet'}</b>
-      <small>${home.length ? 'Working from home: '+home.join(', ') : 'Nobody is working from home'}${off.length ? '<br>On leave: '+off.join(', ') : ''}</small></span>
+    return `<div class="row" style="flex-wrap:wrap"><span class="grow wrap" style="min-width:200px"><b>${label}: ${loc ? esc(loc.location) : 'location not set yet'}</b></span>
       <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${isLead() ? `<button class="btn sm" onclick="locForm('${d}')">Set location</button>` : ''}${btn}</span></div>`;
   };
-  return sec('Where we are working', `<div class="list">${day(t,'Today')}${day(addDays(t,1),'Tomorrow')}</div>`);
+  return outToday() + sec('Where we are working', `<div class="list">${day(t,'Today')}</div>`);
+}
+/* Approved WFH and leave covering today, with each person's from and to dates */
+function outToday(){
+  const t = today(), act = new Set(S.people.filter(p => p.status==='active').map(p => p.id));
+  const span = o => o.start_date===o.end_date ? fmt(o.start_date) : `${fmt(o.start_date)} to ${fmt(o.end_date)}`;
+  const now = kind => S.offs.filter(o => (kind==='wfh' ? o.kind==='wfh' : o.kind!=='wfh') && act.has(o.user_id) && o.start_date<=t && o.end_date>=t)
+    .filter(o => kind!=='wfh' || !leaveOn(o.user_id,t))
+    .sort((a,b) => nm(a.user_id).localeCompare(nm(b.user_id)));
+  const box = (title, rows) => `<div style="padding:14px 16px;min-width:0"><small>${title}</small><b style="display:block;font-size:24px;line-height:1.2;font-weight:700">${rows.length}</b>
+    ${rows.map(o => `<a href="#person/${o.user_id}" style="display:block;padding:6px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.3"><span style="display:block;font-weight:600;overflow-wrap:anywhere">${esc(nm(o.user_id))}</span><span class="muted" style="font-size:13px">${span(o)}</span></a>`).join('')}</div>`;
+  return sec(`Today, ${fmt(t)}`, `<div class="stats" style="grid-template-columns:1fr 1fr;align-items:start">${box('Working from home', now('wfh'))}${box('On leave', now('leave'))}</div>`);
 }
 function locForm(d){
   const loc = S.locs.find(x => x.work_date===d);
