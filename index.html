@@ -143,6 +143,31 @@ input[type=checkbox]{width:auto;min-height:0}
 .auth-card h1{margin-bottom:6px}
 .auth-card .sub{color:var(--muted);margin-bottom:22px}
 .auth-card .alt{margin-top:16px;font-size:14px;color:var(--muted)}
+/* Attendance */
+.punch{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 18px;align-items:center;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-bottom:6px}
+.punch .when{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px}
+.punch .when b{display:block;font-size:20px;line-height:1.2;font-weight:700;letter-spacing:-.01em}
+.punch .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.btn.big{height:48px;padding:0 22px;font-size:16px;border-radius:10px}
+.btn.go{background:var(--green);border-color:var(--green);color:#fff}
+@media (prefers-color-scheme:dark){.btn.go{color:#0c1a12}}
+@media (max-width:560px){.punch{grid-template-columns:1fr}.punch .acts{justify-content:stretch}.punch .acts .btn{flex:1}}
+.loc{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.filters{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 10px;margin-bottom:12px}
+.filters .field{margin:0}
+.filters select,.filters input{min-height:36px;padding:5px 9px}
+.tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th,.tbl td{padding:9px 12px;text-align:left;border-top:1px solid var(--line);white-space:nowrap;vertical-align:top}
+.tbl th{border-top:0;font-size:12px;font-weight:600;color:var(--muted)}
+.tbl td.wrap{white-space:normal;min-width:160px}
+.tbl tr.click{cursor:pointer}
+.meter{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:6px}
+.meter i{display:block;height:100%;background:var(--accent)}
+.meter i.warn{background:var(--amber)}
+.meter i.over{background:var(--red)}
+.dots i.holiday{background:var(--red)}
+.chk{display:flex;gap:8px;align-items:center;margin-bottom:12px;font-weight:500}
 </style>
 </head>
 <body>
@@ -151,8 +176,10 @@ input[type=checkbox]{width:auto;min-height:0}
 <div id="toast" hidden></div>
 <script>
 const sb = supabase.createClient('https://swsgehwrsfftqobdjpff.supabase.co', 'sb_publishable_A_XD_57MohmK0zGlc6zkwg_4Kjyh82h');
-const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],locs:[],wfh:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash)};
+const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],locs:[],wfh:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash),
+  settings:null,leadTypes:[],teamLeads:[],att:[],vio:[],ledger:[],bal:{},audit:[],attMonths:new Set(),attTab:'me',attF:{}};
 const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',techlead:'Tech lead',member:'Team member'};
+const ORG_ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',member:'Employee'};
 const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',review:'Submitted for review',completed:'Completed'};
 const WORK = {todo:'To do',in_progress:'In progress',blocked:'Blocked'};
 const PRIO = {low:'Low',medium:'Medium',high:'High',urgent:'Urgent'};
@@ -168,7 +195,8 @@ const ICON = {
   activity:'<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   settings:'<path d="M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4"/>',
   bell:'<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7M10 20a2 2 0 0 0 4 0"/>',
-  more:'<path d="M5 12h.01M12 12h.01M19 12h.01"/>'
+  more:'<path d="M5 12h.01M12 12h.01M19 12h.01"/>',
+  attendance:'<path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/>'
 };
 const svg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
 const $ = s => document.querySelector(s);
@@ -192,7 +220,25 @@ const leaveOn = (id,d) => S.offs.some(o => o.kind!=='wfh' && o.user_id===id && o
 const wfhOn = (id,d) => S.offs.some(o => o.kind==='wfh' && o.user_id===id && o.start_date<=d && o.end_date>=d);
 const whereOn = (id,d) => leaveOn(id,d) ? 'on leave' : wfhOn(id,d) ? 'working from home' : '';
 const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && team(a))); };
-const canCreate = () => isLead() || S.me.role==='techlead' || S.me.can_assign;
+/* Flexible leadership: org roles (Founder, Co-Founder, Director) + any number of configurable team leads per department */
+const isAdmin = () => S.me?.status==='active' && (S.me.role==='founder' || !!S.me.is_admin);
+const activeLT = id => S.leadTypes.find(t => t.id===id && t.active);
+const leadsOf = id => S.teamLeads.filter(l => l.user_id===id && activeLT(l.lead_type_id));
+const isTeamLead = p => !!p && (p.role==='techlead' || leadsOf(p.id).length > 0);
+const myLeadDepts = () => [...new Set(leadsOf(S.me.id).map(l => l.department_id).concat(S.me.role==='techlead' && S.me.department_id ? [S.me.department_id] : []))];
+const leadLabel = l => `${activeLT(l.lead_type_id)?.name || 'Lead'}${D(l.department_id) ? ', '+D(l.department_id) : ''}`;
+const leadPills = p => leadsOf(p.id).map(l => `<span class="pill blue">${esc(leadLabel(l))}</span>`).join('');
+/* Mirrors public.can_assign_task_to() on the server, which is what actually enforces it */
+function canAssignTo(p){
+  if (!p || p.status!=='active') return false;
+  if (isLead()) return true;
+  if (leader(p)) return false;
+  if (p.id===S.me.id) return S.me.can_assign || isTeamLead(S.me);
+  if (isTeamLead(p) && !S.settings?.leads_can_assign_leads) return false;
+  if (S.me.can_assign) return true;
+  return !!p.department_id && myLeadDepts().includes(p.department_id);
+}
+const canCreate = () => isLead() || S.me.role==='techlead' || S.me.can_assign || isTeamLead(S.me);
 const canEditTask = t => t.created_by===S.me.id || isLead();
 const canUpdateTask = t => canEditTask(t) || t.assigned_to===S.me.id;
 /* Review flow: whoever does a task someone else assigned submits it; the assigner (or a leader) confirms it */
@@ -312,7 +358,35 @@ async function loadAll(){
   ]);
   Object.assign(S,{people,depts,tasks,leaves,offs,notes,acts,events,locs});
   S.me = people.find(p => p.id===S.me.id) || S.me;
+  await loadAttendanceCore();
 }
+/* Attendance and leadership data. Soft-fails so the rest of the app keeps working if the database update is not applied yet. */
+const soft = async p => { const {data,error} = await p; return error ? null : data; };
+async function loadAttendanceCore(){
+  const [settings, leadTypes, teamLeads, bals, ledger] = await Promise.all([
+    soft(sb.from('org_settings').select('*').eq('id',1).maybeSingle()),
+    soft(sb.from('lead_types').select('*').order('sort').order('name')),
+    soft(sb.from('team_leads').select('*')),
+    soft(sb.rpc('leave_balances')),
+    soft(sb.from('leave_ledger').select('*').order('effective_date',{ascending:false}).limit(500))]);
+  S.attReady = !!settings;
+  Object.assign(S, {settings, leadTypes:leadTypes||[], teamLeads:teamLeads||[], ledger:ledger||[]});
+  S.bal = Object.fromEntries((bals||[]).map(b => [b.user_id, b.summary]));
+  if (!S.attReady) return;
+  const months = new Set([istToday().slice(0,7), prevMonth(istToday().slice(0,7)), ...S.attMonths]);
+  await loadAttMonths([...months], true);
+  if (isAdmin()) S.audit = (await soft(sb.from('attendance_audit').select('*').order('created_at',{ascending:false}).limit(150))) || [];
+}
+async function loadAttMonths(months, replace){
+  const lo = months.slice().sort()[0] + '-01', hi = monthEnd(months.slice().sort().slice(-1)[0]);
+  const [att, vio] = await Promise.all([
+    soft(sb.from('attendance').select('*').gte('work_date',lo).lte('work_date',hi).order('work_date',{ascending:false})),
+    soft(sb.from('attendance_violations').select('*').gte('work_date',lo).lte('work_date',hi).order('actual_at'))]);
+  const keep = (arr, fresh) => replace ? (fresh||[]) : [...arr.filter(x => !(fresh||[]).some(y => y.id===x.id)), ...(fresh||[])];
+  S.att = keep(replace ? [] : S.att, att); S.vio = keep(replace ? [] : S.vio, vio);
+  months.forEach(m => S.attMonths.add(m));
+}
+async function ensureMonth(m){ if (S.attReady && !S.attMonths.has(m)) { await loadAttMonths([m]); route(); } }
 async function refresh(){ await loadAll(); if(S.me.status!=='active') return gateView(); route(); }
 
 /* ---------- Live updates: bell, pop-ups, lists refresh without reloading ---------- */
@@ -347,6 +421,7 @@ function live(){
     .on('postgres_changes', {event:'*', schema:'public', table:'notifications', filter:'user_id=eq.' + S.me.id}, p => onNote(p.new))
     .on('postgres_changes', {event:'*', schema:'public', table:'tasks'}, () => softRefresh())
     .on('postgres_changes', {event:'*', schema:'public', table:'leaves'}, () => softRefresh())
+    .on('postgres_changes', {event:'*', schema:'public', table:'attendance'}, () => softRefresh())
     .subscribe();
 }
 function askAlerts(){ return run(async () => {
@@ -370,9 +445,9 @@ async function boot(){
 sb.auth.onAuthStateChange(ev => { if(ev==='PASSWORD_RECOVERY'){ S.recovery=true; S.authMode='reset'; authView(); } });
 
 /* ---------- Shell and routing ---------- */
-const NAV = [['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['calendar','Calendar'],['activity','Activity']];
+const NAV = [['home','Home'],['attendance','Attendance'],['tasks','Tasks'],['leave','Leave'],['people','People'],['calendar','Calendar'],['activity','Activity']];
 function shell(){
-  const items = NAV.concat(S.me.role==='founder' ? [['settings','Settings']] : []);
+  const items = NAV.concat(isAdmin() ? [['settings','Settings']] : []);
   $('#root').innerHTML = `<div class="app">
     <aside class="side"><div class="brand">LaunchPad 30</div>
       ${items.map(([k,l]) => `<a class="nav" data-nav="${k}" href="#${k}">${svg(k)}${l}${k==='tasks' ? '<span class="badge" data-badge="tasks" title="Waiting for your review" hidden></span>' : ''}</a>`).join('')}
@@ -385,10 +460,10 @@ function shell(){
       </header>
       <main class="page" id="page"></main>
     </div>
-    <nav class="tabbar">${[['home','Home'],['tasks','Tasks'],['leave','Leave'],['people','People'],['more','More']].map(([k,l]) => `<a class="tab" data-nav="${k}" href="#${k}">${svg(k)}${l}${k==='tasks' ? '<span class="badge" data-badge="tasks" hidden></span>' : ''}</a>`).join('')}</nav>
+    <nav class="tabbar">${[['home','Home'],['attendance','Attendance'],['tasks','Tasks'],['leave','Leave'],['people','People'],['more','More']].map(([k,l]) => `<a class="tab" data-nav="${k}" href="#${k}">${svg(k)}${l}${k==='tasks' ? '<span class="badge" data-badge="tasks" hidden></span>' : ''}</a>`).join('')}</nav>
   </div>`;
 }
-const VIEWS = {home:['Home',homeView],tasks:['Tasks',tasksView],task:['Tasks',taskView],leave:['Leave',leaveView],people:['People',peopleView],person:['People',personView],calendar:['Calendar',calView],activity:['Activity',actView],inbox:['Notifications',inboxView],settings:['Settings',settingsView],more:['More',moreView]};
+const VIEWS = {attendance:['Attendance',attendanceView],home:['Home',homeView],tasks:['Tasks',tasksView],task:['Tasks',taskView],leave:['Leave',leaveView],people:['People',peopleView],person:['People',personView],calendar:['Calendar',calView],activity:['Activity',actView],inbox:['Notifications',inboxView],settings:['Settings',settingsView],more:['More',moreView]};
 function route(){
   if (!S.me || S.me.status!=='active' || !$('#page')) return;
   const [v,id] = (location.hash.slice(1) || 'home').split('/');
@@ -479,6 +554,7 @@ function homeView(){
     ${canCreate() ? `<button class="btn primary" onclick="taskForm()">New task</button>` : ''}</div>
     <div class="stats"><div><b>${all.filter(x=>x.status==='in_progress').length}</b><small>In progress</small></div><div><b>${all.filter(x=>x.status==='review').length}</b><small>Submitted for review</small></div>
       <div><b>${all.filter(x=>x.status==='completed').length}</b><small>Completed</small></div><div><b>${all.filter(x=>!['completed','review'].includes(x.status)&&x.deadline&&x.deadline<t).length}</b><small>Overdue</small></div></div>`;
+  if (S.attReady) out = out.replace('<div class="stats">', sec('Attendance today', attCard(), `<a class="link" href="#attendance">History</a>`) + (canSeeTeamAtt() ? teamTodayStrip() : '') + '<div class="stats" style="margin-top:28px">');
   if (reviews.length) out += sec(`Waiting for your review (${reviews.length})`, list(reviews.map(taskRow)));
   if (fixes.length) out += sec('Sent back with changes', list(fixes.map(taskRow)));
   out += whereBlock();
@@ -532,6 +608,315 @@ function locForm(d){
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save location</button></div></form>`);
 }
 async function saveLoc(f){ await q(sb.from('team_locations').upsert({work_date:f.work_date, location:f.location.trim(), set_by:S.me.id, updated_at:new Date().toISOString()})); closeModal(); toast('Location saved'); await refresh(); }
+
+/* ---------- Attendance ---------- */
+/* All times come from the server (check-in/out RPCs stamp now()); the browser only formats them in the company time zone. */
+const TZ = () => S.settings?.timezone || 'Asia/Kolkata';
+const istToday = () => new Intl.DateTimeFormat('en-CA',{timeZone:TZ()}).format(new Date());
+const prevMonth = m => { const [y,mo] = m.split('-').map(Number); return mo===1 ? `${y-1}-12` : `${y}-${pad(mo-1)}`; };
+const nextMonth = m => { const [y,mo] = m.split('-').map(Number); return mo===12 ? `${y+1}-01` : `${y}-${pad(mo+1)}`; };
+const monthEnd = m => { const [y,mo] = m.split('-').map(Number); return `${m}-${pad(new Date(y,mo,0).getDate())}`; };
+const monthDays = m => { const out = [], end = monthEnd(m); for (let d = m+'-01'; d <= end; d = addDays(d,1)) out.push(d); return out; };
+const monthName = m => new Date(m+'-01T00:00').toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+const fmtT = ts => ts ? new Date(ts).toLocaleTimeString('en-IN',{timeZone:TZ(),hour:'numeric',minute:'2-digit'}) : '--';
+const fmtDur = m => m==null ? '--' : `${Math.floor(m/60)}h ${pad(m%60)}m`;
+const hm = t => (t||'').slice(0,5);
+const fmtClock = t => { const [h,m] = hm(t).split(':').map(Number); return new Date(2000,0,1,h,m).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}); };
+const attFor = (uid, d) => S.att.find(a => a.user_id===uid && a.work_date===d);
+const holidayOn = d => S.events.find(e => e.is_holiday && e.event_date===d);
+function offReason(uid, d){
+  if (leaveOn(uid, d)) return 'leave';
+  if (holidayOn(d)) return 'holiday';
+  if ((S.settings?.weekly_offs || []).includes(new Date(d+'T00:00').getDay())) return 'weekly_off';
+  return null;
+}
+const DAYTYPE = {working:'', wfh:'Work from home', weekly_off:'Weekly off', holiday:'Holiday', leave:'On leave'};
+const ATT_ST = {ontime:['On time','green'], late:['Late','amber'], early:['Early checkout','amber'], late_early:['Late and early','red'],
+  missing:['Missing check-out','red'], in:['Checked in','blue'], absent:['Absent','red'], notyet:['Not checked in',''], off:['Off','']};
+function attStatus(r, uid, d){
+  if (!r || !r.check_in_at) {
+    const off = offReason(uid, d); if (off) return 'off';
+    if (d > istToday() || (S.settings?.attendance_start && d < S.settings.attendance_start)) return 'off';
+    if (d === istToday()) return 'notyet';
+    const p = P(uid); if (p?.joining_date && p.joining_date > d) return 'off';
+    return 'absent';
+  }
+  if (!r.check_out_at) return (r.missing_checkout || r.work_date < istToday()) ? 'missing' : 'in';
+  if (r.is_late && r.is_early) return 'late_early';
+  return r.is_late ? 'late' : r.is_early ? 'early' : 'ontime';
+}
+function stPill(st, r, uid, d){
+  if (st==='off') { const j = P(uid)?.joining_date, k = r?.day_type && r.day_type!=='working' ? r.day_type : offReason(uid, d) || (j && j > d ? 'prejoin' : d > istToday() ? 'upcoming' : S.settings?.attendance_start && d < S.settings.attendance_start ? 'pretrack' : 'weekly_off');
+    return `<span class="pill">${({...DAYTYPE, prejoin:'Before joining', upcoming:'Upcoming', pretrack:'Before tracking began'})[k] || 'Off'}</span>`; }
+  const [l,c] = ATT_ST[st]; return `<span class="pill ${c}">${l}</span>` + (r?.day_type==='wfh' ? ' <span class="pill blue">WFH</span>' : '') + (r?.corrected ? ' <span class="pill">Corrected</span>' : '');
+}
+const periodStartOf = d => { const p = S.settings?.grace_period || 'month', [y,m] = d.split('-').map(Number);
+  return p==='year' ? `${y}-01-01` : p==='quarter' ? `${y}-${pad(Math.floor((m-1)/3)*3+1)}-01` : `${y}-${pad(m)}-01`; };
+const PERIOD = {month:'this month', quarter:'this quarter', year:'this year'};
+function graceInfo(uid, d = istToday()){
+  const ps = periodStartOf(d), lim = S.settings?.grace_limit ?? 5;
+  const vs = S.vio.filter(v => v.user_id===uid && v.period_start===ps && v.status==='active');
+  const used = vs.reduce((n,v) => Math.max(n, v.grace_number || 0), 0);
+  const ded = vs.filter(v => v.deduction_status==='applied').reduce((n,v) => n + Number(v.deduction_days), 0);
+  return {lim, used, left: Math.max(0, lim - used), vs, ded, late: vs.filter(v => v.kind==='late_checkin').length, early: vs.filter(v => v.kind==='early_checkout').length,
+    flagged: vs.filter(v => v.deduction_status==='insufficient_balance').length};
+}
+const locText = (r, k) => r[k+'_location']==='captured' ? (r[k+'_address'] || `${Number(r[k+'_lat']).toFixed(5)}, ${Number(r[k+'_lng']).toFixed(5)}`)
+  : r[k+'_location']==='denied' ? 'Location not shared' : r[k+'_location']==='unavailable' ? 'Location unavailable' : '';
+const mapLink = (r, k) => r[k+'_location']==='captured' ? ` <a class="link" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${r[k+'_lat']},${r[k+'_lng']}">Map</a>` : '';
+
+function attCard(){
+  if (!S.attReady) return `<div class="list"><div class="empty">Attendance is being set up. It appears here once the database update is applied.</div></div>`;
+  const t = istToday(), r = attFor(S.me.id, t), st = attStatus(r, S.me.id, t), s = S.settings, g = graceInfo(S.me.id);
+  const yest = S.att.filter(a => a.user_id===S.me.id && a.work_date<t && a.check_in_at && !a.check_out_at).sort((a,b) => a.work_date<b.work_date?1:-1)[0];
+  const off = !r && offReason(S.me.id, t);
+  const btn = !r?.check_in_at ? `<button class="btn primary big" id="punchBtn" onclick="punch('in')">Check in</button>`
+    : !r.check_out_at ? `<button class="btn go big" id="punchBtn" onclick="punch('out')">Check out</button>`
+    : `<span class="pill green">Day complete</span>`;
+  const live = r?.check_in_at && !r.check_out_at ? `<span data-since="${r.check_in_at}">${fmtDur(Math.floor((Date.now()-new Date(r.check_in_at))/6e4))}</span>` : fmtDur(r?.worked_minutes);
+  const pct = Math.min(100, g.used / Math.max(1,g.lim) * 100);
+  return `${yest ? `<div class="banner amber"><span class="grow"><b>You did not check out on ${fmt(yest.work_date)}</b><span class="muted">That day is flagged as a missing check-out. Ask an administrator to correct it if needed.</span></span></div>` : ''}
+    <div class="punch"><div style="min-width:0">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b>${fmtLong(t)}</b>${stPill(st, r, S.me.id, t)}${off && !r ? `<span class="muted">${DAYTYPE[off]}</span>` : ''}</div>
+      <div class="when"><span><small>Check-in</small><b>${fmtT(r?.check_in_at)}</b></span><span><small>Check-out</small><b>${fmtT(r?.check_out_at)}</b></span><span><small>Worked</small><b>${live}</b></span></div>
+      ${r ? `<p class="loc" style="margin-top:6px">${esc(locText(r,'check_in'))}${r.check_out_at && locText(r,'check_out') ? ' · Out: '+esc(locText(r,'check_out')) : ''}</p>` : ''}
+      <p class="muted" style="font-size:13px;margin-top:6px">Office hours ${fmtClock(s.work_start)} to ${fmtClock(s.work_end)}. Grace chances ${PERIOD[s.grace_period]}: <b>${g.left} of ${g.lim} left</b>${g.ded ? `, ${g.ded} day deducted` : ''}.</p>
+      <div class="meter" title="${g.used} of ${g.lim} grace chances used"><i class="${g.used>g.lim ? 'over' : g.used>=g.lim-1 ? 'warn' : ''}" style="width:${pct}%"></i></div>
+    </div><div class="acts">${btn}</div></div>`;
+}
+function getLocation(){
+  return new Promise(res => {
+    if (!('geolocation' in navigator)) return res({status:'unavailable'});
+    navigator.geolocation.getCurrentPosition(
+      p => res({status:'captured', lat:p.coords.latitude, lng:p.coords.longitude, acc:p.coords.accuracy}),
+      e => res({status: e.code===1 ? 'denied' : 'unavailable'}),
+      {enableHighAccuracy:true, timeout:15000, maximumAge:0});
+  });
+}
+async function lookupAddress(lat, lng){
+  try {
+    const c = new AbortController(), tm = setTimeout(() => c.abort(), 5000);
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=${lat}&lon=${lng}`, {signal:c.signal, headers:{'Accept-Language':'en'}});
+    clearTimeout(tm); if (!r.ok) return null;
+    return ((await r.json()).display_name || '').slice(0,300) || null;
+  } catch(e) { return null; }
+}
+let punching = false;
+async function punch(dir){
+  if (punching) return; punching = true;
+  const b = $('#punchBtn'), label = b?.textContent;
+  try {
+    if (!navigator.onLine) throw new Error('You are offline. Nothing was recorded. Reconnect and try again.');
+    if (b) { b.disabled = true; b.textContent = 'Getting location'; }
+    const loc = await getLocation();
+    if (loc.status!=='captured' && S.settings.require_location)
+      throw new Error(loc.status==='denied' ? 'Location is required. Allow location for this site in your browser settings, then try again.' : 'Could not get your location. Move to an open area or turn on GPS, then try again.');
+    if (loc.status==='denied') toast('Location not shared. Your time is recorded and marked "location not shared".');
+    if (b) b.textContent = 'Saving';
+    const address = loc.status==='captured' ? await lookupAddress(loc.lat, loc.lng) : null;
+    const args = {p_lat:loc.lat ?? null, p_lng:loc.lng ?? null, p_accuracy:loc.acc ?? null, p_address:address, p_location_status:loc.status};
+    let data, error;
+    try { ({data, error} = await sb.rpc(dir==='in' ? 'attendance_check_in' : 'attendance_check_out', args)); } catch(e) { error = e; }
+    if (error) throw new Error(/fetch|network|load failed|timed? ?out/i.test(error.message||'') || !navigator.onLine
+      ? 'Network problem. We could not confirm your '+(dir==='in'?'check-in':'check-out')+'. Tap again: it will never be recorded twice.' : error.message);
+    const res = data, rec = res.record;
+    toast(res.result==='already' ? `Already ${dir==='in' ? 'checked in at '+fmtT(rec.check_in_at) : 'checked out at '+fmtT(rec.check_out_at)}`
+      : dir==='in' ? `Checked in at ${fmtT(rec.check_in_at)}${rec.is_late ? `, ${rec.late_minutes} min late` : ''}` : `Checked out at ${fmtT(rec.check_out_at)}${rec.is_early ? `, ${rec.early_minutes} min early` : ''}`);
+    await refresh();
+  } catch(e) { if (!e.shown) toast(e.message || 'Something went wrong. Try again.'); if (b) { b.disabled = false; b.textContent = label; } }
+  finally { punching = false; }
+}
+setInterval(() => document.querySelectorAll('[data-since]').forEach(e => e.textContent = fmtDur(Math.floor((Date.now()-new Date(e.dataset.since))/6e4))), 30000);
+
+/* Who the current user may see (the database enforces the same rule with RLS) */
+function canViewAtt(p){
+  if (!p) return false; if (p.id===S.me.id || isAdmin()) return true;
+  if (['cofounder','director'].includes(S.me.role)) return !leader(p);
+  return !leader(p) && !isTeamLead(p) && !!p.department_id && myLeadDepts().includes(p.department_id);
+}
+const canSeeTeamAtt = () => S.attReady && (isAdmin() || ['cofounder','director'].includes(S.me.role) || isTeamLead(S.me));
+const attScope = () => S.people.filter(p => p.status==='active' && canViewAtt(p) && (p.id!==S.me.id || isAdmin()));
+function teamTodayStrip(){
+  const t = istToday(), ppl = attScope().filter(p => p.id!==S.me.id), c = {in:0, late:0, notyet:0, off:0};
+  ppl.forEach(p => { const r = attFor(p.id,t), st = attStatus(r,p.id,t); if (r?.check_in_at) c.in++; if (r?.is_late) c.late++; if (st==='notyet') c.notyet++; if (st==='off') c.off++; });
+  if (!ppl.length) return '';
+  return `<a href="#attendance" onclick="S.attTab='team';S.attF={mode:'day',date:'${t}'}" class="stats" style="margin-top:8px;color:inherit">
+    <div><b>${c.in}/${ppl.length - c.off}</b><small>Team checked in</small></div><div><b>${c.late}</b><small>Late today</small></div>
+    <div><b>${c.notyet}</b><small>Not checked in yet</small></div><div><b>${c.off}</b><small>Off or on leave</small></div></a>`;
+}
+
+function attendanceView(){
+  if (!S.attReady) return `<div class="head"><h1>Attendance</h1></div>${attCard()}`;
+  const tabs = [['me','My attendance']];
+  if (canSeeTeamAtt()) tabs.push(['team','Team']);
+  const pending = S.vio.filter(v => v.status==='active' && (v.deduction_status==='insufficient_balance' || v.dispute_status==='open') && v.user_id!==S.me.id).length;
+  if (isAdmin()) tabs.push(['review', `Review${pending ? ' ('+pending+')' : ''}`]);
+  if (!tabs.some(x => x[0]===S.attTab)) S.attTab = 'me';
+  const seg = `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===S.attTab?'on':''}" onclick="S.attTab='${k}';route()">${l}</button>`).join('')}</div>`;
+  const head = `<div class="head"><h1>Attendance</h1>${isAdmin() ? `<button class="btn" onclick="correctForm()">Correct a record</button>` : ''}</div>`;
+  return head + seg + (S.attTab==='team' ? attTeamView() : S.attTab==='review' ? attReviewView() : attMeView());
+}
+function monthNav(m, key){
+  return `<span style="display:flex;gap:6px;align-items:center"><button class="btn sm" onclick="attMonth('${key}','${prevMonth(m)}')" aria-label="Previous month">Prev</button>
+    <b style="min-width:120px;text-align:center">${monthName(m)}</b><button class="btn sm" onclick="attMonth('${key}','${nextMonth(m)}')" ${m>=istToday().slice(0,7) ? 'disabled' : ''} aria-label="Next month">Next</button></span>`;
+}
+function attMonth(key, m){ S.attF[key] = m; ensureMonth(m); route(); }
+const VKIND = {late_checkin:'Late check-in', early_checkout:'Early checkout'};
+function vioRow(v, showName){
+  const ded = {applied:`<span class="pill red">${Number(v.deduction_days)} day deducted</span>`, insufficient_balance:'<span class="pill amber">Deduction on hold: low balance</span>',
+    reversed:'<span class="pill green">Deduction reversed</span>', waived:'<span class="pill green">Deduction waived</span>', none:''}[v.deduction_status];
+  const grace = v.status==='voided' ? `<span class="pill">Voided</span>` : v.counted ? `<span class="pill ${v.within_grace ? 'blue' : 'red'}">Occurrence ${v.grace_number} of ${S.settings.grace_limit}${v.within_grace ? ', grace' : ''}</span>` : `<span class="pill">Same day, not counted again</span>`;
+  const disp = v.dispute_status==='open' ? '<span class="pill amber">Disputed</span>' : v.dispute_status==='rejected' ? '<span class="pill">Dispute rejected</span>' : v.dispute_status==='resolved' ? '<span class="pill green">Dispute resolved</span>' : '';
+  const mine = v.user_id===S.me.id, admin = isAdmin() && (!mine || S.me.role==='founder');
+  let acts = '';
+  if (mine && v.status==='active' && v.dispute_status!=='open') acts += `<button class="btn sm" onclick="disputeForm('${v.id}')">Dispute</button>`;
+  if (admin && v.status==='active') {
+    if (v.deduction_status==='insufficient_balance') acts += `<button class="btn sm" onclick="vioForm('${v.id}','force_apply')">Apply anyway</button>`;
+    if (['applied','insufficient_balance'].includes(v.deduction_status)) acts += `<button class="btn sm" onclick="vioForm('${v.id}','waive')">Waive deduction</button>`;
+    if (v.dispute_status==='open') acts += `<button class="btn sm" onclick="vioForm('${v.id}','reject_dispute')">Reject dispute</button>`;
+    acts += `<button class="btn sm danger" onclick="vioForm('${v.id}','void')">Void</button>`;
+  }
+  const notes = [v.deduction_reason, v.dispute_note && 'Employee: '+v.dispute_note, v.resolution_note && 'Decision: '+v.resolution_note, v.status==='voided' && v.voided_reason && 'Voided: '+v.voided_reason].filter(Boolean);
+  return `<div class="row" style="flex-wrap:wrap;align-items:flex-start">${showName ? av(P(v.user_id),30) : ''}
+    <span class="grow wrap" style="min-width:200px"><b>${showName ? esc(nm(v.user_id))+', ' : ''}${VKIND[v.kind]}, ${fmt(v.work_date)}</b>
+      <small>Expected ${fmtT(v.expected_at)}, actual ${fmtT(v.actual_at)} (${v.minutes} min)</small>
+      <span class="tags">${grace}${ded}${disp}</span>${notes.length ? `<small style="margin-top:4px">${notes.map(esc).join('<br>')}</small>` : ''}</span>
+    ${acts ? `<span style="display:flex;gap:6px;flex-wrap:wrap">${acts}</span>` : ''}</div>`;
+}
+function dayRow(uid, d, showName){
+  const r = attFor(uid, d), st = attStatus(r, uid, d);
+  const loc = r ? [locText(r,'check_in'), r.check_out_at ? locText(r,'check_out') : ''].filter(Boolean) : [];
+  return `<div class="row" style="flex-wrap:wrap">${showName ? av(P(uid),30) : ''}
+    <span class="grow" style="min-width:150px"><b>${showName ? esc(nm(uid))+', ' : ''}${new Date(d+'T00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'})}</b>
+      <small>${r?.check_in_at ? `In ${fmtT(r.check_in_at)}${r.is_late ? ` (${r.late_minutes}m late)` : ''} · Out ${fmtT(r.check_out_at)}${r.is_early ? ` (${r.early_minutes}m early)` : ''} · ${fmtDur(r.worked_minutes)}` : holidayOn(d) ? esc(holidayOn(d).title) : ''}</small>
+      ${loc.length ? `<small class="loc">${esc(loc[0])}${r && canViewAtt(P(uid)) && uid!==S.me.id ? mapLink(r,'check_in') : ''}</small>` : ''}</span>
+    <span class="tags" style="margin:0">${stPill(st, r, uid, d)}</span>
+    ${isAdmin() && (uid!==S.me.id || S.me.role==='founder') && d<=istToday() ? `<button class="btn sm" onclick="correctForm('${uid}','${d}')">Correct</button>` : ''}</div>`;
+}
+function attMeView(){
+  const m = S.attF.myMonth || istToday().slice(0,7), t = istToday();
+  const days = monthDays(m).filter(d => d<=t).reverse();
+  const g = graceInfo(S.me.id), vs = S.vio.filter(v => v.user_id===S.me.id && v.work_date.slice(0,7)===m).sort((a,b) => a.actual_at<b.actual_at?1:-1);
+  const b = S.bal[S.me.id];
+  const recs = S.att.filter(a => a.user_id===S.me.id && a.work_date.slice(0,7)===m);
+  return `${attCard()}
+    <div class="stats" style="margin-top:16px"><div><b>${g.left}/${g.lim}</b><small>Grace chances left ${PERIOD[S.settings.grace_period]}</small></div>
+      <div><b>${g.late}</b><small>Late check-ins</small></div><div><b>${g.early}</b><small>Early checkouts</small></div>
+      <div><b>${b ? Number(b.balance) : '--'}</b><small>Paid leave balance (days)</small></div></div>
+    <p class="muted" style="margin-top:8px;font-size:13px">The first ${g.lim} late check-ins or early checkouts ${PERIOD[S.settings.grace_period]} are free. Each one after that deducts ${Number(S.settings.deduction_days)} day of leave. ${S.settings.count_same_day_separately ? 'A late check-in and an early checkout on the same day count as two.' : 'A late check-in and an early checkout on the same day count as one.'}</p>
+    ${sec('Violations and deductions', list(vs.map(v => vioRow(v)), 'No late check-ins or early checkouts this month.'), monthNav(m,'myMonth'))}
+    ${sec(`Daily record, ${monthName(m)}`, list(days.map(d => dayRow(S.me.id, d)), 'No days yet.'), `<small>${recs.filter(r=>r.check_in_at).length} days present, ${fmtDur(recs.reduce((n,r) => n + (r.worked_minutes||0), 0))} worked</small>`)}`;
+}
+/* Team / manager view: filter by employee, department, date or month, status. CSV export. */
+function attTeamView(){
+  const f = S.attF, mode = f.mode || 'day', date = f.date || istToday(), m = f.month || istToday().slice(0,7);
+  const scope = attScope().filter(p => (!f.dept || p.department_id===f.dept) && (!f.who || p.id===f.who));
+  const deptIds = [...new Set(attScope().map(p => p.department_id).filter(Boolean))];
+  const stOpts = {'':'All statuses', ontime:'On time', late:'Late', early:'Early checkout', late_early:'Late and early', missing:'Missing check-out', in:'Checked in', notyet:'Not checked in', absent:'Absent', off:'Off or on leave'};
+  const filters = `<div class="filters">
+    <label class="field"><span>View</span><select onchange="S.attF.mode=this.value;route()"><option value="day"${mode==='day'?' selected':''}>One day</option><option value="month"${mode==='month'?' selected':''}>Month summary</option><option value="list"${mode==='list'?' selected':''}>Month, every day</option></select></label>
+    ${mode==='day' ? `<label class="field"><span>Date</span><input type="date" value="${date}" max="${istToday()}" onchange="S.attF.date=this.value;ensureMonth(this.value.slice(0,7));route()"></label>`
+      : `<label class="field"><span>Month</span><input type="month" value="${m}" max="${istToday().slice(0,7)}" onchange="S.attF.month=this.value;ensureMonth(this.value);route()"></label>`}
+    <label class="field"><span>Department</span><select onchange="S.attF.dept=this.value;route()"><option value="">All departments</option>${deptIds.map(id => `<option value="${id}"${id===f.dept?' selected':''}>${esc(D(id))}</option>`).join('')}</select></label>
+    <label class="field"><span>Employee</span><select onchange="S.attF.who=this.value;route()"><option value="">Everyone</option>${attScope().map(p => `<option value="${p.id}"${p.id===f.who?' selected':''}>${esc(p.full_name)}</option>`).join('')}</select></label>
+    ${mode!=='month' ? `<label class="field"><span>Status</span><select onchange="S.attF.st=this.value;route()">${opts(stOpts, f.st||'')}</select></label>` : ''}</div>`;
+  if (mode==='month') {
+    const rows = scope.map(p => monthSummary(p.id, m));
+    return filters + `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn sm" onclick="exportSummary('${m}')">Export CSV</button></div>
+      <div class="tblwrap"><table class="tbl"><thead><tr><th>Employee</th><th>Working days</th><th>Present</th><th>Late</th><th>Early</th><th>Missing out</th><th>Absent</th><th>Leave</th><th>Hours</th><th>Grace used</th><th>Deducted</th></tr></thead><tbody>
+      ${rows.map(s => `<tr class="click" onclick="S.attF.who='${s.id}';S.attF.mode='list';route()"><td class="wrap"><b>${esc(s.name)}</b><br><small>${esc(s.dept)}</small></td><td>${s.working}</td><td>${s.present}</td><td>${s.late}</td><td>${s.early}</td><td>${s.missing}</td><td>${s.absent}</td><td>${s.leave}</td><td>${fmtDur(s.minutes)}</td><td>${s.graceUsed}/${S.settings.grace_limit}</td><td>${s.deducted}</td></tr>`).join('') || '<tr><td colspan="11" class="empty">No one to show.</td></tr>'}
+      </tbody></table></div>`;
+  }
+  const days = mode==='day' ? [date] : monthDays(m).filter(d => d<=istToday()).reverse();
+  let rows = [];
+  days.forEach(d => scope.forEach(p => { const st = attStatus(attFor(p.id,d), p.id, d); if (!f.st || f.st===st) rows.push([p.id,d]); }));
+  const vs = S.vio.filter(v => scope.some(p => p.id===v.user_id) && (mode==='day' ? v.work_date===date : v.work_date.slice(0,7)===m));
+  return filters + `<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center"><small>${rows.length} record${rows.length===1?'':'s'}</small><button class="btn sm" onclick="exportDays()">Export CSV</button></div>
+    ${list(rows.slice(0,400).map(([u,d]) => dayRow(u,d,true)), 'No records match these filters.')}
+    ${vs.length ? sec('Late check-ins and early checkouts', list(vs.sort((a,b) => a.actual_at<b.actual_at?1:-1).map(v => vioRow(v,true)))) : ''}`;
+}
+function monthSummary(uid, m){
+  const p = P(uid), t = istToday(), days = monthDays(m).filter(d => d<=t);
+  const s = {id:uid, name:p.full_name, empId:p.employee_id||'', dept:D(p.department_id), working:0, present:0, late:0, early:0, missing:0, absent:0, leave:0, minutes:0, graceUsed:0, deducted:0};
+  days.forEach(d => { const r = attFor(uid,d), st = attStatus(r,uid,d), off = offReason(uid,d);
+    if (off==='leave' || r?.day_type==='leave') s.leave++;
+    if (!off && !(p.joining_date && p.joining_date>d) && !(S.settings.attendance_start && d < S.settings.attendance_start)) s.working++;
+    if (r?.check_in_at) s.present++; if (r?.is_late) s.late++; if (r?.is_early) s.early++; if (st==='missing') s.missing++; if (st==='absent') s.absent++;
+    s.minutes += r?.worked_minutes || 0; });
+  const vs = S.vio.filter(v => v.user_id===uid && v.work_date.slice(0,7)===m && v.status==='active');
+  s.graceUsed = Math.min(S.settings.grace_limit, vs.reduce((n,v) => Math.max(n, v.grace_number||0), 0));
+  s.deducted = vs.filter(v => v.deduction_status==='applied').reduce((n,v) => n + Number(v.deduction_days), 0);
+  return s;
+}
+function downloadCsv(name, rows){
+  const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? '"' + s.replace(/^([=+\-@])/, "'$1").replace(/"/g,'""') + '"' : s; };
+  const blob = new Blob(['﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function exportDays(){
+  const f = S.attF, mode = f.mode || 'day', date = f.date || istToday(), m = f.month || istToday().slice(0,7);
+  const scope = attScope().filter(p => (!f.dept || p.department_id===f.dept) && (!f.who || p.id===f.who));
+  const days = mode==='day' ? [date] : monthDays(m).filter(d => d<=istToday());
+  const out = [['Employee','Employee ID','Department','Date','Day type','Status','Check-in','Check-out','Worked (min)','Late (min)','Early (min)','Check-in location','Check-out location','Corrected']];
+  days.forEach(d => scope.forEach(p => { const r = attFor(p.id,d), st = attStatus(r,p.id,d); if (f.st && f.st!==st) return;
+    out.push([p.full_name, p.employee_id||'', D(p.department_id), d, DAYTYPE[r?.day_type || offReason(p.id,d) || 'working'] || 'Working', st==='off' ? 'Off' : ATT_ST[st][0],
+      fmtT(r?.check_in_at).replace('--',''), fmtT(r?.check_out_at).replace('--',''), r?.worked_minutes ?? '', r?.late_minutes || '', r?.early_minutes || '',
+      r ? locText(r,'check_in') + (r.check_in_lat!=null ? ` (${r.check_in_lat},${r.check_in_lng})` : '') : '', r?.check_out_at ? locText(r,'check_out') : '', r?.corrected ? 'Yes' : '']); }));
+  downloadCsv(`attendance-${mode==='day' ? date : m}.csv`, out);
+}
+function exportSummary(m){
+  const f = S.attF, scope = attScope().filter(p => (!f.dept || p.department_id===f.dept) && (!f.who || p.id===f.who));
+  downloadCsv(`attendance-summary-${m}.csv`, [['Employee','Employee ID','Department','Working days','Present','Late check-ins','Early checkouts','Missing check-outs','Absent','Leave days','Hours worked','Grace chances used','Leave deducted (days)']]
+    .concat(scope.map(p => { const s = monthSummary(p.id, m); return [s.name, s.empId, s.dept, s.working, s.present, s.late, s.early, s.missing, s.absent, s.leave, (s.minutes/60).toFixed(2), s.graceUsed, s.deducted]; })));
+}
+function attReviewView(){
+  const vs = S.vio.filter(v => v.status==='active');
+  const held = vs.filter(v => v.deduction_status==='insufficient_balance'), disputes = vs.filter(v => v.dispute_status==='open');
+  const missing = S.att.filter(a => a.check_in_at && !a.check_out_at && a.work_date < istToday()).sort((a,b) => a.work_date<b.work_date?1:-1);
+  const ACT = {check_in:'Checked in', check_out:'Checked out', correction:'Corrected record', deduction_applied:'Deduction applied', deduction_reversed:'Deduction reversed', deduction_flagged:'Deduction held (low balance)',
+    deduction_waived:'Deduction waived', violation_voided:'Violation voided', dispute_opened:'Dispute opened', dispute_rejected:'Dispute rejected', leave_adjustment:'Leave adjusted', missing_checkout:'Missing check-out flagged', settings_changed:'Settings changed'};
+  const audit = S.audit.filter(a => !['check_in','check_out'].includes(a.action)).slice(0,60);
+  return `<p class="muted" style="margin-bottom:12px">Deductions that could not be applied, open disputes and missing check-outs. Every decision needs a reason and is kept in the audit trail.</p>
+    ${sec(`Deductions on hold: not enough leave (${held.length})`, list(held.map(v => vioRow(v,true)), 'Nothing on hold.'))}
+    ${sec(`Open disputes (${disputes.length})`, list(disputes.map(v => vioRow(v,true)), 'No open disputes.'))}
+    ${sec(`Missing check-outs (${missing.length})`, list(missing.slice(0,40).map(a => dayRow(a.user_id, a.work_date, true)), 'None.'))}
+    ${sec('Audit trail', list(audit.map(a => `<div class="row" style="align-items:flex-start">${av(P(a.actor_id),28)}<span class="grow wrap"><b style="font-weight:500">${esc(ACT[a.action] || a.action)}${a.user_id ? ': '+esc(nm(a.user_id)) : ''}</b>
+      <small>${a.actor_id ? 'By '+esc(nm(a.actor_id))+', ' : 'System, '}${ago(a.created_at)}${a.reason ? '<br>Reason: '+esc(a.reason) : ''}${a.action==='correction' && a.detail?.after ? `<br>Now in ${fmtT(a.detail.after.check_in_at)}, out ${fmtT(a.detail.after.check_out_at)}${a.detail.before ? ` (was ${fmtT(a.detail.before.check_in_at)} to ${fmtT(a.detail.before.check_out_at)})` : ''}` : ''}</small></span></div>`), 'No entries yet.'))}`;
+}
+function correctForm(uid, d){
+  const r = uid && d ? attFor(uid, d) : null, people = attScope().filter(p => p.id!==S.me.id || S.me.role==='founder');
+  const tm = ts => ts ? new Date(ts).toLocaleTimeString('en-GB',{timeZone:TZ(),hour:'2-digit',minute:'2-digit'}) : '';
+  openModal(`<h2>Correct attendance</h2><div class="note">The employee is notified. The old and new times and your reason are kept in the audit trail, and late or early outcomes are recalculated.</div>
+    <form onsubmit="return send(event,saveCorrection)">
+      <label class="field"><span>Employee</span><select name="user" required><option value="">Choose</option>${people.map(p => `<option value="${p.id}"${p.id===uid?' selected':''}>${esc(p.full_name)}</option>`).join('')}</select></label>
+      <label class="field"><span>Date</span><input name="date" type="date" value="${d || istToday()}" max="${istToday()}" required></label>
+      <div class="two"><label class="field"><span>Check-in time</span><input name="cin" type="time" value="${tm(r?.check_in_at)}" required></label>
+        <label class="field"><span>Check-out time</span><input name="cout" type="time" value="${tm(r?.check_out_at)}"><small>Leave empty if still at work</small></label></div>
+      <label class="field"><span>Reason</span><textarea name="reason" required minlength="5" placeholder="What happened and how you verified it"></textarea></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save correction</button></div></form>`);
+}
+async function saveCorrection(f){
+  const off = '+05:30', iso = (d,t) => t ? `${d}T${t}:00${TZ()==='Asia/Kolkata' ? off : ''}` : null;
+  let cout = iso(f.date, f.cout);
+  if (cout && f.cout < f.cin) cout = iso(addDays(f.date,1), f.cout);
+  await q(sb.rpc('attendance_correct', {p_user:f.user, p_date:f.date, p_check_in:iso(f.date,f.cin), p_check_out:cout, p_reason:f.reason.trim()}));
+  closeModal(); toast('Attendance corrected'); await refresh();
+}
+function disputeForm(id){
+  openModal(`<h2>Dispute this record</h2><div class="note">An administrator reviews it and can void the violation, which returns any leave deducted for it.</div>
+    <form onsubmit="return send(event,(f)=>vioAct('${id}','dispute',f.note))"><label class="field"><span>What is wrong?</span><textarea name="note" required></textarea></label>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Send dispute</button></div></form>`);
+}
+function vioForm(id, action){
+  const T = {void:['Void violation','It no longer counts towards grace chances. Any deduction for it is returned and later occurrences are renumbered.','Void'],
+    waive:['Waive deduction','The violation still counts, but no leave is deducted for it.','Waive'],
+    force_apply:['Apply deduction anyway','The employee does not have enough leave. Applying it makes their balance negative.','Apply deduction'],
+    reject_dispute:['Reject dispute','The record stays as it is.','Reject dispute']}[action];
+  openModal(`<h2>${T[0]}</h2><div class="note">${T[1]}</div><form onsubmit="return send(event,(f)=>vioAct('${id}','${action}',f.note))">
+    <label class="field"><span>Reason</span><textarea name="note" required></textarea></label>
+    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${T[2]}</button></div></form>`);
+}
+async function vioAct(id, action, note){ await q(sb.rpc('attendance_violation_action', {p_violation:id, p_action:action, p_note:(note||'').trim()})); closeModal(); toast('Saved'); await refresh(); }
 
 /* ---------- Tasks ---------- */
 function tasksView(){
@@ -666,14 +1051,15 @@ function uploadTaskFile(input, id){ return run(async () => {
 }); }
 function taskForm(id){
   const t = id ? S.tasks.find(x => x.id===id) : {priority:'medium',visibility:'team',assigned_to:'',start_date:today()};
-  const who = S.people.filter(p => p.status==='active' && (isLead() || p.role==='member'));
+  const who = S.people.filter(p => canAssignTo(p) || (id && p.id===t.assigned_to));
+  const teams = myLeadDepts().map(D).filter(Boolean).join(', ');
   openModal(`<h2>${id ? 'Edit task' : 'New task'}</h2>
-    ${isLead() ? '' : '<div class="note">You can assign tasks to team members. When they finish, they submit it and you confirm it.</div>'}
+    ${isLead() ? '' : `<div class="note">${S.me.can_assign ? 'You can assign tasks to employees in any team' : `You can assign tasks to members of the team${myLeadDepts().length>1?'s':''} you lead${teams ? ' ('+esc(teams)+')' : ''}`}, not to other leads or leadership. When they finish, they submit it and you confirm it.</div>`}
     <form onsubmit="return send(event,saveTask.bind(null,'${id||''}'))">
       <label class="field"><span>Title</span><input name="title" value="${esc(t.title||'')}" required></label>
       <label class="field"><span>Description</span><textarea name="description">${esc(t.description||'')}</textarea></label>
       <div class="two">
-        <label class="field"><span>Assign to</span><select name="assigned_to" id="tf_who" required onchange="leadHint()"><option value="">Choose a person</option>${who.map(p => `<option value="${p.id}"${p.id===t.assigned_to?' selected':''}>${esc(p.full_name)} (${ROLE[p.role]}${whereOn(p.id,today()) ? ', '+whereOn(p.id,today())+' today' : ''})</option>`).join('')}</select></label>
+        <label class="field"><span>Assign to</span><select name="assigned_to" id="tf_who" required onchange="leadHint()"><option value="">Choose a person</option>${who.map(p => `<option value="${p.id}"${p.id===t.assigned_to?' selected':''}>${esc(p.full_name)} (${isTeamLead(p) && !leader(p) ? esc(leadsOf(p.id).map(l => activeLT(l.lead_type_id)?.name).filter(Boolean)[0] || 'Lead') : ROLE[p.role]}${whereOn(p.id,today()) ? ', '+whereOn(p.id,today())+' today' : ''})</option>`).join('')}</select></label>
         <label class="field"><span>Department</span><select name="department_id" id="tf_dept">${deptOpts(t.department_id)}</select></label>
       </div>
       <p class="muted" id="tf_where" style="margin:-6px 0 14px" hidden></p>
@@ -722,7 +1108,9 @@ function leaveView(){
   let body;
   if (tab==='mine') {
     const up = mine.filter(l => l.status==='approved' && l.end_date>=t);
-    body = `<div class="stats"><div><b>${S.leaves.filter(l=>l.user_id===S.me.id && l.status==='pending').length}</b><small>Pending</small></div><div><b>${leaveMonth}</b><small>Leave days this month</small></div><div><b>${wfhMonth}</b><small>WFH days this month</small></div><div><b>${up.length}</b><small>Upcoming</small></div></div>
+    const bal = S.bal[S.me.id];
+    body = `<div class="stats"><div><b>${S.leaves.filter(l=>l.user_id===S.me.id && l.status==='pending').length}</b><small>Pending</small></div><div><b>${leaveMonth}</b><small>Leave days this month</small></div><div><b>${wfhMonth}</b><small>WFH days this month</small></div>${bal ? `<div><b>${Number(bal.balance)}</b><small>Paid leave balance</small></div>` : `<div><b>${up.length}</b><small>Upcoming</small></div>`}</div>
+      ${bal ? balanceBlock(S.me.id) : ''}
       ${up.length ? sec('Upcoming', list(up.map(l => leaveRow(l)))) : ''}
       ${sec('History', list(mine.map(l => leaveRow(l)), 'No requests yet.'))}`;
   } else if (tab==='review') body = list(review.map(l => leaveRow(l,true)), 'Nothing is waiting for your approval.');
@@ -757,17 +1145,40 @@ function registerView(){
   const rows = staff.map(p => { const s = leaveTotals(p.id, yr);
     return `<a class="row" href="#person/${p.id}" style="flex-wrap:wrap">${av(p,36)}
       <span class="grow" style="min-width:150px"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+', ' : ''}${esc(p.designation || ROLE[p.role])}${p.status!=='active' ? ', inactive' : ''}<br>${s.last ? 'Last leave '+fmt(s.last.start_date) : 'No leave taken'}</small></span>
-      <span style="display:flex;gap:4px">${chip(s.leaveMo,'Leave this month')}${chip(s.leaveYr,'Leave in '+yr)}${chip(s.wfhYr,'WFH in '+yr)}${chip(s.pending,'Pending', s.pending > 0)}</span></a>`; });
+      <span style="display:flex;gap:4px">${chip(s.leaveMo,'Leave this month')}${chip(s.leaveYr,'Leave in '+yr)}${chip(s.wfhYr,'WFH in '+yr)}${chip(s.pending,'Pending', s.pending > 0)}${S.bal[p.id] ? chip(Number(S.bal[p.id].balance),'Balance', Number(S.bal[p.id].balance) <= 0) : ''}</span></a>`; });
   return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><p class="muted" style="flex:1;min-width:220px">Approved days for every employee. Tap someone to see every leave and work-from-home request they have made.</p>
     <label class="field" style="margin:0;width:120px"><select aria-label="Year" onchange="S.regYear=this.value;route()">${years.map(y => `<option${y===yr?' selected':''}>${y}</option>`).join('')}</select></label></div>
     ${list(rows, 'No employees yet.')}`;
 }
+/* Paid leave balance = monthly accrual - approved leave - attendance deductions + reversals and adjustments (computed in the database) */
+function balanceBlock(uid){
+  const b = S.bal[uid]; if (!b) return '';
+  const rows = S.ledger.filter(l => l.user_id===uid).slice(0,30);
+  const ET = {deduction:'Deducted', reversal:'Returned', adjustment:'Adjusted'};
+  return sec('Paid leave balance', `<div class="kv" style="margin-bottom:10px">
+      <div><label>Earned since ${fmt(b.from)}</label>${Number(b.accrued)} days (${Number(b.monthly_quota)} a month)</div>
+      <div><label>Approved leave taken</label>${Number(b.used)} days</div>
+      <div><label>Attendance deductions</label>${Number(b.deducted)} days${Number(b.reversed) ? `, ${Number(b.reversed)} returned` : ''}</div>
+      ${Number(b.adjusted) ? `<div><label>Adjustments</label>${Number(b.adjusted)} days</div>` : ''}
+      <div><label>Available now</label><b style="font-size:18px${Number(b.balance)<0 ? ';color:var(--red)' : ''}">${Number(b.balance)} days</b></div></div>
+    ${list(rows.map(l => `<div class="row"><span class="grow wrap"><b style="font-weight:500">${ET[l.entry_type]} ${Math.abs(Number(l.days))} day, ${fmt(l.effective_date)}</b><small>${esc(l.reason)}${l.created_by && l.entry_type!=='deduction' ? ' · by '+esc(nm(l.created_by)) : ''}</small></span><span class="pill ${Number(l.days)<0 ? 'red' : 'green'}">${Number(l.days)>0?'+':''}${Number(l.days)}</span></div>`), 'No deductions or adjustments.')}`,
+    isAdmin() && (uid!==S.me.id || S.me.role==='founder') ? `<button class="link" onclick="adjustForm('${uid}')">Adjust balance</button>` : '');
+}
+function adjustForm(uid){
+  openModal(`<h2>Adjust leave for ${esc(nm(uid))}</h2><div class="note">Use a positive number to add days, negative to remove. The employee is notified and the change is logged.</div>
+    <form onsubmit="return send(event,saveAdjust.bind(null,'${uid}'))">
+      <div class="two"><label class="field"><span>Days</span><input name="days" type="number" step="0.5" min="-60" max="60" required></label>
+        <label class="field"><span>Effective date</span><input name="date" type="date" value="${istToday()}" required></label></div>
+      <label class="field"><span>Reason</span><textarea name="reason" required minlength="5"></textarea></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`);
+}
+async function saveAdjust(uid, f){ await q(sb.rpc('leave_adjust', {p_user:uid, p_days:Number(f.days), p_date:f.date, p_reason:f.reason.trim()})); closeModal(); toast('Leave balance adjusted'); await refresh(); }
 function personLeave(p){
   const s = leaveTotals(p.id, today().slice(0,4)), yr = today().slice(0,4);
   const kf = S.personKind || 'all', rows = s.all.filter(l => kf==='all' || (kf==='wfh' ? isWfh(l) : !isWfh(l)));
   return sec('Leave and work from home', `<div class="stats" style="margin-bottom:12px"><div><b>${s.leaveMo}</b><small>Leave days this month</small></div><div><b>${s.leaveYr}</b><small>Leave days in ${yr}</small></div><div><b>${s.wfhYr}</b><small>WFH days in ${yr}</small></div><div><b>${s.pending}</b><small>Pending requests</small></div></div>
     <div class="seg">${[['all','All ('+s.all.length+')'],['leave','Leave'],['wfh','Work from home']].map(([k,l]) => `<button class="${k===kf?'on':''}" onclick="S.personKind='${k}';route()">${l}</button>`).join('')}</div>
-    ${list(rows.map(l => leaveRow(l)), 'Nothing on record.')}`);
+    ${list(rows.map(l => leaveRow(l)), 'Nothing on record.')}`) + balanceBlock(p.id);
 }
 function leaveForm(kind, day){
   const wfh = kind==='wfh', t = day || today(), founder = S.me.role==='founder';
@@ -819,7 +1230,7 @@ function accountRow(p){
 }
 function setAccount(id, status){ return run(async () => { await q(sb.from('profiles').update({status}).eq('id',id)); toast(status==='active' ? 'Account approved' : 'Request rejected'); await refresh(); }); }
 function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : wfhOn(p.id, today()) ? '<span class="pill blue">Working from home</span>' : '<span class="pill green">Active</span>'; }
-function personCard(p){ return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small></span>${statusPill(p)}</a>`; }
+function personCard(p){ const lp = leadPills(p); return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small>${lp ? `<span class="tags">${lp}</span>` : ''}</span>${statusPill(p)}</a>`; }
 function peopleView(){
   const admin = ['founder','director'].includes(S.me.role);
   const pend = admin ? S.people.filter(p => p.status==='pending') : [];
@@ -828,7 +1239,8 @@ function peopleView(){
   return `<div class="head"><h1>People</h1></div>
     ${pend.length ? sec('Account requests', list(pend.map(accountRow))) : ''}
     ${sec('Leadership', `<div class="people">${leads.map(personCard).join('')}</div>`)}
-    ${sec('Team', active.filter(p=>!leader(p)).length ? `<div class="people">${active.filter(p=>!leader(p)).sort((a,b) => (b.role==='techlead') - (a.role==='techlead')).map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No team members yet. Share the link so they can request an account.</div></div>`)}
+    ${active.some(p => !leader(p) && isTeamLead(p)) ? sec('Team leads', `<div class="people">${active.filter(p => !leader(p) && isTeamLead(p)).map(personCard).join('')}</div>`, isAdmin() ? `<a class="link" href="#settings">Manage lead types</a>` : '') : ''}
+    ${sec('Team', active.filter(p=>!leader(p) && !isTeamLead(p)).length ? `<div class="people">${active.filter(p=>!leader(p) && !isTeamLead(p)).map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No team members yet. Share the link so they can request an account.</div></div>`)}
     ${off.length ? sec('Inactive and rejected', `<div class="people">${off.map(personCard).join('')}</div>`) : ''}`;
 }
 function personView(id){
@@ -837,18 +1249,23 @@ function personView(id){
   const me = p.id===S.me.id, tasks = S.tasks.filter(t => !t.archived && t.assigned_to===p.id && t.status!=='completed');
   const leaves = S.leaves.filter(l => l.user_id===p.id);
   return `<a class="back" href="#people">Back to people</a>
-    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}</p></div></div>${statusPill(p)}</div>
+    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}${p.is_admin && p.role!=='founder' ? ', administrator' : ''}</p>${leadPills(p) ? `<p class="tags">${leadPills(p)}</p>` : ''}</div></div>${statusPill(p)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
-      ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>${me ? '' : `<button class="btn sm danger" onclick="delPerson('${p.id}')">Delete person</button>`}` : ''}</div>
+      ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}
+      ${S.attReady && isAdmin() && !leader(p) && p.status==='active' && (!me || S.me.role==='founder') ? `<button class="btn sm" onclick="leadForm('${p.id}')">Lead roles</button>` : ''}
+      ${canManage(p) && !me ? `<button class="btn sm danger" onclick="delPerson('${p.id}')">Delete person</button>` : ''}</div>
     <div class="kv">
       <div><label>Department</label>${esc(D(p.department_id) || 'None')}</div>
       <div><label>Email</label><a href="mailto:${esc(p.email)}" style="overflow-wrap:anywhere">${esc(p.email)}</a></div>
       <div><label>Phone</label>${p.phone ? `<a href="tel:${esc(p.phone)}">${esc(p.phone)}</a>` : 'Not added'}</div>
       <div><label>Joined</label>${fmt(p.joining_date)}</div>
       <div><label>Reports to</label>${p.reports_to && P(p.reports_to) ? `<a href="#person/${p.reports_to}">${esc(nm(p.reports_to))}</a>` : 'Not set'}</div>
-      ${(p.can_assign && p.role==='member') || p.role==='techlead' ? '<div><label>Access</label>Can assign tasks to team members</div>' : ''}
+      ${p.can_assign && !leader(p) ? '<div><label>Access</label>Can assign tasks to employees in any team</div>' : ''}
+      ${isTeamLead(p) && !leader(p) ? `<div><label>Leads</label>${leadsOf(p.id).map(l => esc(leadLabel(l))).join('<br>') || esc(D(p.department_id))}</div>` : ''}
+      ${S.people.some(x => x.reports_to===p.id && x.status==='active') ? `<div><label>Direct reports</label>${S.people.filter(x => x.reports_to===p.id && x.status==='active').map(x => `<a href="#person/${x.id}">${esc(x.full_name)}</a>`).join(', ')}</div>` : ''}
     </div>
+    ${S.attReady && canViewAtt(p) && (me || S.att.some(a => a.user_id===p.id) || canSeeTeamAtt()) ? personAttendance(p) : ''}
     ${sec('Open tasks', list(tasks.map(taskRow), 'No open tasks you can see.'))}
     ${me || leaves.length || (isLead() && (S.me.role==='founder' || team(p))) ? personLeave(p) : ''}`;
 }
@@ -878,8 +1295,9 @@ function manageForm(id){
   const p = P(id), founder = S.me.role==='founder';
   const bosses = S.people.filter(x => x.status==='active' && x.id!==id);
   openModal(`<h2>Manage ${esc(p.full_name)}</h2><form onsubmit="return send(event,saveManage.bind(null,'${id}'))">
-    ${founder ? `<label class="field"><span>Role</span><select name="role">${opts(ROLE,p.role)}</select></label>` : ''}
-    ${founder ? `<p class="muted" style="margin:-6px 0 14px">Tech lead: assigns tasks to team members only (never to the Founder, Co-Founder or Director), reviews the work they assigned, and has no access to approvals, people management or leadership tasks. Their leave and WFH go to the Director.</p>` : ''}
+    ${founder ? `<label class="field"><span>Organisation role</span><select name="role">${opts(p.role==='techlead' ? {...ORG_ROLE, techlead:'Tech lead (old role)'} : ORG_ROLE, p.role)}</select></label>` : ''}
+    ${founder ? `<p class="muted" style="margin:-6px 0 14px">Any number of people can be Co-Founder or Director. Team leads (Tech Lead, Marketing Lead and others) are set with "Lead roles" on the profile, per department, and can only assign work inside their own team.</p>` : ''}
+    ${founder && p.role!=='founder' ? `<label class="chk"><input type="checkbox" name="is_admin"${p.is_admin?' checked':''}> Administrator: can manage lead roles, attendance corrections and attendance settings</label>` : ''}
     ${team(p) ? `<label class="field"><span>Employee ID</span><input name="employee_id" value="${esc(p.employee_id||'')}" placeholder="Assigned automatically on approval"></label>` : ''}
     <label class="field"><span>Account status</span><select name="status">${opts({active:'Active',inactive:'Inactive',pending:'Pending',rejected:'Rejected'},p.status)}</select></label>
     <div class="two">
@@ -890,20 +1308,41 @@ function manageForm(id){
       <label class="field"><span>Joining date</span><input name="joining_date" type="date" value="${p.joining_date||''}"></label>
       <label class="field"><span>Reports to</span><select name="reports_to"><option value="">Not set</option>${bosses.map(b => `<option value="${b.id}"${b.id===p.reports_to?' selected':''}>${esc(b.full_name)}</option>`).join('')}</select></label>
     </div>
-    ${founder && p.role==='member' ? `<label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="can_assign"${p.can_assign?' checked':''}> Can assign tasks to team members</label>` : ''}
+    ${founder && p.role==='member' ? `<label class="chk"><input type="checkbox" name="can_assign"${p.can_assign?' checked':''}> Can assign tasks to employees in any team (cross-team)</label>` : ''}
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Save changes</button></div></form>`);
 }
 async function saveManage(id, f){
   const row = {status:f.status, department_id:f.department_id||null, designation:f.designation.trim()||null, joining_date:f.joining_date||null, reports_to:f.reports_to||null};
   if ('employee_id' in f) row.employee_id = f.employee_id.trim() || null;
-  if (S.me.role==='founder') { row.role = f.role; if (P(id).role==='member') row.can_assign = !!f.can_assign; }
+  if (S.me.role==='founder') { row.role = f.role; if (P(id).role==='member') row.can_assign = !!f.can_assign; if (P(id).role!=='founder' && S.attReady) row.is_admin = !!f.is_admin; }
   await q(sb.from('profiles').update(row).eq('id',id)); closeModal(); toast('Changes saved'); await refresh();
 }
+function personAttendance(p){
+  const m = istToday().slice(0,7), s = monthSummary(p.id, m), g = graceInfo(p.id);
+  const recent = monthDays(m).filter(d => d<=istToday()).reverse().slice(0,7);
+  return sec(`Attendance, ${monthName(m)}`, `<div class="stats" style="margin-bottom:10px"><div><b>${s.present}/${s.working}</b><small>Days present</small></div><div><b>${s.late}</b><small>Late check-ins</small></div>
+      <div><b>${s.early}</b><small>Early checkouts</small></div><div><b>${g.left}/${g.lim}</b><small>Grace left</small></div></div>
+    ${list(recent.map(d => dayRow(p.id, d)), 'No days yet.')}`,
+    `<a class="link" href="#attendance" onclick="${p.id===S.me.id ? "S.attTab='me'" : `S.attTab='team';S.attF={mode:'list',who:'${p.id}'}`}">Full history</a>`);
+}
+/* Lead roles: any number of leads, several per department, configurable lead types. Server enforces admin-only and no self-escalation. */
+function leadForm(uid){
+  const p = P(uid), cur = S.teamLeads.filter(l => l.user_id===uid), types = S.leadTypes.filter(t => t.active);
+  openModal(`<h2>Lead roles for ${esc(p.full_name)}</h2>
+    <p class="muted" style="margin-bottom:12px">A lead assigns and reviews work for their department's employees, sees their attendance, and still gets their own tasks. Leads cannot assign to other leads${S.settings?.leads_can_assign_leads ? ' (currently allowed in settings)' : ''} or to leadership.</p>
+    ${list(cur.map(l => `<div class="row"><span class="grow"><b>${esc(S.leadTypes.find(t => t.id===l.lead_type_id)?.name || 'Lead')}</b><small>${esc(D(l.department_id))}${l.assigned_by ? ', set by '+esc(nm(l.assigned_by)) : ''}</small></span><button class="btn sm danger" onclick="removeLead('${l.id}','${uid}')">Remove</button></div>`), 'No lead roles yet.')}
+    <form onsubmit="return send(event,addLead.bind(null,'${uid}'))" style="margin-top:14px">
+      <div class="two"><label class="field"><span>Lead type</span><select name="type" required>${types.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>
+        <label class="field"><span>Team</span><select name="dept" required>${S.depts.map(d => `<option value="${d.id}"${d.id===p.department_id?' selected':''}>${esc(d.name)}</option>`).join('')}</select></label></div>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Close</button><button class="btn primary" type="submit">Add lead role</button></div></form>`);
+}
+async function addLead(uid, f){ await q(sb.from('team_leads').insert({user_id:uid, lead_type_id:f.type, department_id:f.dept})); toast('Lead role added'); await refresh(); leadForm(uid); }
+function removeLead(id, uid){ if (!confirm('Remove this lead role?')) return; return run(async () => { await q(sb.from('team_leads').delete().eq('id',id)); toast('Lead role removed'); await refresh(); leadForm(uid); }); }
 
 /* ---------- Calendar ---------- */
 function dayItems(day){
   const a = [];
-  S.events.filter(e => e.event_date===day).forEach(e => a.push({k:'event', label:e.title, id:e.id}));
+  S.events.filter(e => e.event_date===day).forEach(e => a.push({k:e.is_holiday ? 'holiday' : 'event', label:(e.is_holiday ? 'Holiday: ' : '') + e.title, id:e.id}));
   S.offs.filter(o => o.start_date<=day && o.end_date>=day).forEach(o => a.push(o.kind==='wfh' ? {k:'wfh', label:nm(o.user_id)+' working from home', href:'#person/'+o.user_id} : {k:'leave', label:nm(o.user_id)+' on leave', href:'#person/'+o.user_id}));
   S.tasks.filter(t => !t.archived && !['completed','review'].includes(t.status) && t.deadline===day).forEach(t => a.push({k:'task', label:t.title+' due', href:'#task/'+t.id}));
   return a;
@@ -919,11 +1358,11 @@ function calView(){
   }
   const its = dayItems(S.calDay);
   const rows = its.map(i => i.href ? `<a class="row" href="${i.href}"><span class="dots"><i class="${i.k}"></i></span><span class="grow wrap"><b style="font-weight:500">${esc(i.label)}</b></span></a>`
-    : `<div class="row"><span class="dots"><i class="event"></i></span><span class="grow wrap"><b style="font-weight:500">${esc(i.label)}</b></span>${isLead() ? `<button class="btn sm" onclick="delEvent('${i.id}')">Remove</button>` : ''}</div>`);
+    : `<div class="row"><span class="dots"><i class="${i.k}"></i></span><span class="grow wrap"><b style="font-weight:500">${esc(i.label)}</b></span>${(isLead() && i.k==='event') || isAdmin() ? `<button class="btn sm" onclick="delEvent('${i.id}')">Remove</button>` : ''}</div>`);
   return `<div class="head"><h1>${new Date(y,m,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</h1>
     <span style="display:flex;gap:6px"><button class="btn sm" onclick="calMove(-1)" aria-label="Previous month">Prev</button><button class="btn sm" onclick="calMove(1)" aria-label="Next month">Next</button>${isLead() ? `<button class="btn sm primary" onclick="eventForm()">Add date</button>` : ''}</span></div>
     <div class="cal">${cells}</div>
-    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="wfh"></i>&nbsp;Work from home</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span></p>
+    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="wfh"></i>&nbsp;Work from home</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span><span class="dots" style="align-items:center"><i class="holiday"></i>&nbsp;Holiday</span></p>
     ${sec(fmtLong(S.calDay), list(rows, 'Nothing on this day.'))}`;
 }
 function calMove(n){ const d = new Date(S.cal.y, S.cal.m+n, 1); S.cal = {y:d.getFullYear(), m:d.getMonth()}; S.calDay = ymd(d); route(); }
@@ -931,9 +1370,11 @@ function eventForm(){
   openModal(`<h2>Add a team date</h2><form onsubmit="return send(event,saveEvent)">
     <label class="field"><span>Title</span><input name="title" placeholder="Demo day, holiday, offsite" required></label>
     <label class="field"><span>Date</span><input name="event_date" type="date" value="${S.calDay || today()}" required></label>
+    ${S.attReady && isAdmin() ? `<label class="chk"><input type="checkbox" name="is_holiday"> Company holiday (no attendance rules apply that day)</label>` : ''}
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Add date</button></div></form>`);
 }
-async function saveEvent(f){ await q(sb.from('events').insert({title:f.title.trim(), event_date:f.event_date})); closeModal(); toast('Date added'); S.calDay = f.event_date; await refresh(); }
+async function saveEvent(f){ const row = {title:f.title.trim(), event_date:f.event_date}; if (f.is_holiday) row.is_holiday = true;
+  await q(sb.from('events').insert(row)); closeModal(); toast(f.is_holiday ? 'Holiday added' : 'Date added'); S.calDay = f.event_date; await refresh(); }
 function delEvent(id){ return run(async () => { await q(sb.from('events').delete().eq('id',id)); toast('Date removed'); await refresh(); }); }
 
 /* ---------- Activity, notifications, search, settings ---------- */
@@ -956,7 +1397,9 @@ function inboxView(){
 async function openNote(id){
   const n = S.notes.find(x => x.id===id); if(!n) return;
   if (!n.read) { n.read = true; sb.from('notifications').update({read:true}).eq('id',id).then(()=>{}); }
-  go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : ['account_approved','location'].includes(n.type) ? 'home' : 'people');
+  if (n.entity_type==='attendance') S.attTab = ['att_review','att_dispute'].includes(n.type) && isAdmin() ? 'review' : 'me';
+  go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : n.entity_type==='attendance' ? 'attendance'
+    : ['lead_assigned','lead_removed'].includes(n.type) ? 'person/'+S.me.id : ['account_approved','location'].includes(n.type) ? 'home' : 'people');
 }
 function readAll(){ return run(async () => { await q(sb.from('notifications').update({read:true}).eq('user_id',S.me.id).eq('read',false)); S.notes.forEach(n => n.read = true); route(); }); }
 function searchView(){
@@ -968,20 +1411,59 @@ function searchView(){
     ${sec('People', ps.length ? `<div class="people">${ps.map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No people match.</div></div>`)}`;
 }
 function settingsView(){
-  if (S.me.role!=='founder') return `<div class="list"><div class="empty">Settings are managed by the Founder.</div></div>`;
+  if (!isAdmin()) return `<div class="list"><div class="empty">Settings are managed by the Founder and administrators.</div></div>`;
+  const s = S.settings, founder = S.me.role==='founder';
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const policy = !s ? `<div class="list"><div class="empty">Attendance settings appear once the database update is applied.</div></div>` : `<form class="kv" style="display:block" onsubmit="return send(event,saveSettings)">
+      <div class="two"><label class="field"><span>Work starts</span><input name="work_start" type="time" value="${hm(s.work_start)}" required></label>
+        <label class="field"><span>Work ends</span><input name="work_end" type="time" value="${hm(s.work_end)}" required></label></div>
+      <p class="muted" style="margin:-6px 0 14px">Time zone: ${esc(s.timezone)}. Checking in after the start time is late; checking out before the end time is an early checkout.</p>
+      <div class="field"><span>Weekly offs</span><div style="display:flex;gap:10px;flex-wrap:wrap">${DOW.map((d,i) => `<label class="chk" style="margin:0"><input type="checkbox" name="off${i}"${s.weekly_offs.includes(i)?' checked':''}> ${d}</label>`).join('')}</div></div>
+      <div class="two"><label class="field"><span>Grace chances per period</span><input name="grace_limit" type="number" min="0" max="100" value="${s.grace_limit}" required></label>
+        <label class="field"><span>Grace period</span><select name="grace_period">${opts({month:'Calendar month',quarter:'Quarter',year:'Year'}, s.grace_period)}</select></label></div>
+      <div class="two"><label class="field"><span>Deduction after grace (days)</span><input name="deduction_days" type="number" step="0.25" min="0.25" max="1" value="${Number(s.deduction_days)}" required></label>
+        <label class="field"><span>Paid leave earned per month</span><input name="monthly_leave_quota" type="number" step="0.5" min="0" max="10" value="${Number(s.monthly_leave_quota)}" required></label></div>
+      <div class="two"><label class="field"><span>Leave balance counts from</span><input name="leave_policy_start" type="date" value="${s.leave_policy_start}" required></label>
+        <label class="field"><span>Attendance tracking started</span><input name="attendance_start" type="date" value="${s.attendance_start}" required><small>Earlier days are never marked absent</small></label></div>
+      <label class="chk"><input type="checkbox" name="count_same_day_separately"${s.count_same_day_separately?' checked':''}> A late check-in and an early checkout on the same day count as two occurrences</label>
+      <label class="chk"><input type="checkbox" name="rules_on_wfh"${s.rules_on_wfh?' checked':''}> Apply timing rules on approved work-from-home days</label>
+      <label class="chk"><input type="checkbox" name="leave_carry_forward"${s.leave_carry_forward?' checked':''}> Unused paid leave carries forward to the next month</label>
+      <label class="chk"><input type="checkbox" name="allow_negative_balance"${s.allow_negative_balance?' checked':''}> Allow deductions to make the leave balance negative (otherwise they wait for review)</label>
+      <label class="chk"><input type="checkbox" name="require_location"${s.require_location?' checked':''}> Require location to check in or out</label>
+      <label class="chk"><input type="checkbox" name="leads_can_assign_leads"${s.leads_can_assign_leads?' checked':''}> Team leads may assign tasks to other leads in their team</label>
+      <p class="muted" style="margin-bottom:12px">Changes apply to new check-ins and check-outs. Past records keep their outcome unless corrected. Holidays are added from the Calendar. Missing check-outs are flagged, never counted as early checkouts.</p>
+      <div class="foot"><button class="btn primary" type="submit">Save attendance settings</button></div></form>`;
+  const types = sec('Lead types', list(S.leadTypes.map(t => `<div class="row"><span class="grow"><b>${esc(t.name)}</b><small>${S.teamLeads.filter(l => l.lead_type_id===t.id).length} people${t.active ? '' : ', turned off'}</small></span>
+      <button class="btn sm" onclick="renameLeadType('${t.id}')">Rename</button><button class="btn sm" onclick="toggleLeadType('${t.id}',${!t.active})">${t.active ? 'Turn off' : 'Turn on'}</button></div>`), 'No lead types yet.')
+    + `<form onsubmit="return send(event,addLeadType)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New lead type, e.g. Design Lead" aria-label="New lead type" required><button class="btn" type="submit">Add type</button></form>`);
   return `<div class="head"><h1>Settings</h1></div>
-    ${sec('Departments', list(S.depts.map(d => `<div class="row"><span class="grow"><b>${esc(d.name)}</b><small>${S.people.filter(p=>p.department_id===d.id&&p.status==='active').length} people</small></span>
+    ${sec('Attendance and leave policy', policy)}
+    ${s ? types : ''}
+    ${founder ? sec('Departments', list(S.depts.map(d => `<div class="row"><span class="grow"><b>${esc(d.name)}</b><small>${S.people.filter(p=>p.department_id===d.id&&p.status==='active').length} people</small></span>
       <button class="btn sm" onclick="renameDept('${d.id}')">Rename</button><button class="btn sm danger" onclick="delDept('${d.id}')">Delete</button></div>`), 'No departments yet.')
-      + `<form onsubmit="return send(event,addDept)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New department name" aria-label="New department name" required><button class="btn" type="submit">Add department</button></form>`)}
-    ${sec('Roles and access', `<div class="list"><div class="row"><span class="grow wrap"><b>Roles are set per person</b><small>Open someone in People and choose "Manage role and access" to change their role, status or reporting line, or to let a lead assign tasks.</small></span><a class="btn sm" href="#people">Open people</a></div></div>`)}`;
+      + `<form onsubmit="return send(event,addDept)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New department name" aria-label="New department name" required><button class="btn" type="submit">Add department</button></form>`) : ''}
+    ${sec('Roles and access', `<div class="list"><div class="row"><span class="grow wrap"><b>Roles are set per person</b><small>Open someone in People. "Manage role and access" changes their organisation role, administrator rights, status and reporting line. "Lead roles" makes them a lead of one or more teams.</small></span><a class="btn sm" href="#people">Open people</a></div></div>`)}`;
 }
+async function saveSettings(f){
+  const offs = [0,1,2,3,4,5,6].filter(i => f['off'+i]);
+  if (f.work_end <= f.work_start) throw new Error('Work must end after it starts.');
+  const row = {work_start:f.work_start, work_end:f.work_end, weekly_offs:offs, grace_limit:+f.grace_limit, grace_period:f.grace_period, deduction_days:+f.deduction_days,
+    monthly_leave_quota:+f.monthly_leave_quota, leave_policy_start:f.leave_policy_start, attendance_start:f.attendance_start, count_same_day_separately:!!f.count_same_day_separately, rules_on_wfh:!!f.rules_on_wfh,
+    leave_carry_forward:!!f.leave_carry_forward, allow_negative_balance:!!f.allow_negative_balance, require_location:!!f.require_location, leads_can_assign_leads:!!f.leads_can_assign_leads};
+  const d = await q(sb.from('org_settings').update(row).eq('id',1).select());
+  if (!d?.length) throw new Error('Only administrators can change these settings.');
+  toast('Settings saved'); await refresh();
+}
+async function addLeadType(f, form){ await q(sb.from('lead_types').insert({name:f.name.trim(), sort:(S.leadTypes.length+1)*10})); form.reset(); toast('Lead type added'); await refresh(); }
+function renameLeadType(id){ const t = S.leadTypes.find(x => x.id===id), name = prompt('Lead type name', t.name); if (!name || !name.trim()) return; return run(async () => { await q(sb.from('lead_types').update({name:name.trim()}).eq('id',id)); await refresh(); }); }
+function toggleLeadType(id, on){ return run(async () => { await q(sb.from('lead_types').update({active:on}).eq('id',id)); toast(on ? 'Turned on' : 'Turned off. People with this lead type lose its permissions.'); await refresh(); }); }
 async function addDept(f, form){ await q(sb.from('departments').insert({name:f.name.trim()})); form.reset(); toast('Department added'); await refresh(); }
 function renameDept(id){ const d = S.depts.find(x => x.id===id), name = prompt('Department name', d.name); if(!name || !name.trim()) return; return run(async () => { await q(sb.from('departments').update({name:name.trim()}).eq('id',id)); await refresh(); }); }
 function delDept(id){ if(!confirm('Delete this department? People and tasks in it are kept, without a department.')) return; return run(async () => { await q(sb.from('departments').delete().eq('id',id)); toast('Department deleted'); await refresh(); }); }
 function moreView(){
   const n = S.notes.filter(x => !x.read).length;
   const items = [['calendar','Calendar','calendar'],['activity','Activity','activity'],['inbox',`Notifications${n ? ' ('+n+')' : ''}`,'bell'],['person/'+S.me.id,'My profile','people']];
-  if (S.me.role==='founder') items.push(['settings','Settings','settings']);
+  if (isAdmin()) items.push(['settings','Settings','settings']);
   return `<div class="head"><h1>More</h1></div><div class="list">${items.map(([h,l,i]) => `<a class="row nav" style="border-radius:0;color:var(--ink)" href="#${h}">${svg(i)}<span class="grow"><b>${l}</b></span></a>`).join('')}
     <button class="row link" style="width:100%;color:var(--red);padding:11px 14px" onclick="signOut()">Sign out</button></div>`;
 }
