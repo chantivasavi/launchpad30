@@ -221,7 +221,8 @@ const wfhOn = (id,d) => S.offs.some(o => o.kind==='wfh' && o.user_id===id && o.s
 const whereOn = (id,d) => leaveOn(id,d) ? 'on leave' : wfhOn(id,d) ? 'working from home' : '';
 const canApprove = l => { const a = P(l.user_id); return l.user_id!==S.me.id && !!a && (S.me.role==='founder' || (S.me.role==='director' && team(a))); };
 /* Flexible leadership: org roles (Founder, Co-Founder, Director) + any number of configurable team leads per department */
-const isAdmin = () => S.me?.status==='active' && (S.me.role==='founder' || !!S.me.is_admin);
+/* Administrators = organisation leadership (Founder, Co-Founder, Director). Team leads are never administrators. */
+const isAdmin = () => S.me?.status==='active' && leader(S.me);
 const activeLT = id => S.leadTypes.find(t => t.id===id && t.active);
 const leadsOf = id => S.teamLeads.filter(l => l.user_id===id && activeLT(l.lead_type_id));
 const isTeamLead = p => !!p && (p.role==='techlead' || leadsOf(p.id).length > 0);
@@ -1249,7 +1250,7 @@ function personView(id){
   const me = p.id===S.me.id, tasks = S.tasks.filter(t => !t.archived && t.assigned_to===p.id && t.status!=='completed');
   const leaves = S.leaves.filter(l => l.user_id===p.id);
   return `<a class="back" href="#people">Back to people</a>
-    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}${p.is_admin && p.role!=='founder' ? ', administrator' : ''}</p>${leadPills(p) ? `<p class="tags">${leadPills(p)}</p>` : ''}</div></div>${statusPill(p)}</div>
+    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}${leader(p) ? ', administrator' : ''}</p>${leadPills(p) ? `<p class="tags">${leadPills(p)}</p>` : ''}</div></div>${statusPill(p)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
       ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}
@@ -1296,8 +1297,7 @@ function manageForm(id){
   const bosses = S.people.filter(x => x.status==='active' && x.id!==id);
   openModal(`<h2>Manage ${esc(p.full_name)}</h2><form onsubmit="return send(event,saveManage.bind(null,'${id}'))">
     ${founder ? `<label class="field"><span>Organisation role</span><select name="role">${opts(p.role==='techlead' ? {...ORG_ROLE, techlead:'Tech lead (old role)'} : ORG_ROLE, p.role)}</select></label>` : ''}
-    ${founder ? `<p class="muted" style="margin:-6px 0 14px">Any number of people can be Co-Founder or Director. Team leads (Tech Lead, Marketing Lead and others) are set with "Lead roles" on the profile, per department, and can only assign work inside their own team.</p>` : ''}
-    ${founder && p.role!=='founder' ? `<label class="chk"><input type="checkbox" name="is_admin"${p.is_admin?' checked':''}> Administrator: can manage lead roles, attendance corrections and attendance settings</label>` : ''}
+    ${founder ? `<p class="muted" style="margin:-6px 0 14px">Any number of people can be Co-Founder or Director, and all of them are administrators (attendance corrections, lead roles, settings). Team leads (Tech Lead, Marketing Lead and others) are set with "Lead roles" on the profile, per department, and can only assign work inside their own team.</p>` : ''}
     ${team(p) ? `<label class="field"><span>Employee ID</span><input name="employee_id" value="${esc(p.employee_id||'')}" placeholder="Assigned automatically on approval"></label>` : ''}
     <label class="field"><span>Account status</span><select name="status">${opts({active:'Active',inactive:'Inactive',pending:'Pending',rejected:'Rejected'},p.status)}</select></label>
     <div class="two">
@@ -1314,7 +1314,7 @@ function manageForm(id){
 async function saveManage(id, f){
   const row = {status:f.status, department_id:f.department_id||null, designation:f.designation.trim()||null, joining_date:f.joining_date||null, reports_to:f.reports_to||null};
   if ('employee_id' in f) row.employee_id = f.employee_id.trim() || null;
-  if (S.me.role==='founder') { row.role = f.role; if (P(id).role==='member') row.can_assign = !!f.can_assign; if (P(id).role!=='founder' && S.attReady) row.is_admin = !!f.is_admin; }
+  if (S.me.role==='founder') { row.role = f.role; if (P(id).role==='member') row.can_assign = !!f.can_assign; }
   await q(sb.from('profiles').update(row).eq('id',id)); closeModal(); toast('Changes saved'); await refresh();
 }
 function personAttendance(p){
@@ -1411,7 +1411,7 @@ function searchView(){
     ${sec('People', ps.length ? `<div class="people">${ps.map(personCard).join('')}</div>` : `<div class="list"><div class="empty">No people match.</div></div>`)}`;
 }
 function settingsView(){
-  if (!isAdmin()) return `<div class="list"><div class="empty">Settings are managed by the Founder and administrators.</div></div>`;
+  if (!isAdmin()) return `<div class="list"><div class="empty">Settings are managed by the Founder, Co-Founder and Director.</div></div>`;
   const s = S.settings, founder = S.me.role==='founder';
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const policy = !s ? `<div class="list"><div class="empty">Attendance settings appear once the database update is applied.</div></div>` : `<form class="kv" style="display:block" onsubmit="return send(event,saveSettings)">
@@ -1439,10 +1439,10 @@ function settingsView(){
   return `<div class="head"><h1>Settings</h1></div>
     ${sec('Attendance and leave policy', policy)}
     ${s ? types : ''}
-    ${founder ? sec('Departments', list(S.depts.map(d => `<div class="row"><span class="grow"><b>${esc(d.name)}</b><small>${S.people.filter(p=>p.department_id===d.id&&p.status==='active').length} people</small></span>
+    ${sec('Departments', list(S.depts.map(d => `<div class="row"><span class="grow"><b>${esc(d.name)}</b><small>${S.people.filter(p=>p.department_id===d.id&&p.status==='active').length} people</small></span>
       <button class="btn sm" onclick="renameDept('${d.id}')">Rename</button><button class="btn sm danger" onclick="delDept('${d.id}')">Delete</button></div>`), 'No departments yet.')
-      + `<form onsubmit="return send(event,addDept)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New department name" aria-label="New department name" required><button class="btn" type="submit">Add department</button></form>`) : ''}
-    ${sec('Roles and access', `<div class="list"><div class="row"><span class="grow wrap"><b>Roles are set per person</b><small>Open someone in People. "Manage role and access" changes their organisation role, administrator rights, status and reporting line. "Lead roles" makes them a lead of one or more teams.</small></span><a class="btn sm" href="#people">Open people</a></div></div>`)}`;
+      + `<form onsubmit="return send(event,addDept)" style="display:flex;gap:8px;margin-top:10px"><input name="name" placeholder="New department name" aria-label="New department name" required><button class="btn" type="submit">Add department</button></form>`)}
+    ${sec('Roles and access', `<div class="list"><div class="row"><span class="grow wrap"><b>Roles are set per person</b><small>Open someone in People. "Manage role and access" changes their organisation role, status and reporting line. Founder, Co-Founder and Director are administrators automatically; team leads are not. "Lead roles" makes them a lead of one or more teams.</small></span><a class="btn sm" href="#people">Open people</a></div></div>`)}`;
 }
 async function saveSettings(f){
   const offs = [0,1,2,3,4,5,6].filter(i => f['off'+i]);
