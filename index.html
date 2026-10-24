@@ -179,6 +179,8 @@ const sb = supabase.createClient('https://swsgehwrsfftqobdjpff.supabase.co', 'sb
 const S = {me:null,people:[],depts:[],tasks:[],leaves:[],offs:[],notes:[],acts:[],events:[],locs:[],wfh:[],q:'',taskTab:'mine',taskStatus:'open',leaveTab:'mine',cal:null,calDay:null,authMode:'login',authMsg:'',recovery:/type=recovery/.test(location.hash),
   settings:null,leadTypes:[],teamLeads:[],att:[],vio:[],ledger:[],bal:{},audit:[],attMonths:new Set(),attTab:'me',attF:{}};
 const ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',techlead:'Tech lead',member:'Team member'};
+/* Leaders show their own title (CTO, COO...) when set, otherwise the role name */
+const roleLabel = p => (leader(p) && p.leadership_title) || ROLE[p?.role] || '';
 const ORG_ROLE = {founder:'Founder',cofounder:'Co-Founder',director:'Director',member:'Employee'};
 const STATUS = {todo:'To do',in_progress:'In progress',blocked:'Blocked',review:'Submitted for review',completed:'Completed'};
 const WORK = {todo:'To do',in_progress:'In progress',blocked:'Blocked'};
@@ -1235,7 +1237,7 @@ function accountRow(p){
 }
 function setAccount(id, status){ return run(async () => { await q(sb.from('profiles').update({status}).eq('id',id)); toast(status==='active' ? 'Account approved' : 'Request rejected'); await refresh(); }); }
 function statusPill(p){ return p.status!=='active' ? `<span class="pill">${p.status[0].toUpperCase()+p.status.slice(1)}</span>` : onLeave(p.id) ? '<span class="pill amber">On leave</span>' : wfhOn(p.id, today()) ? '<span class="pill blue">Working from home</span>' : '<span class="pill green">Active</span>'; }
-function personCard(p){ const lp = leadPills(p); return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(p.designation || ROLE[p.role])}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small>${lp ? `<span class="tags">${lp}</span>` : ''}</span>${statusPill(p)}</a>`; }
+function personCard(p){ const lp = leadPills(p); return `<a class="card" href="#person/${p.id}">${av(p,40)}<span class="grow"><b>${esc(p.full_name)}</b><small>${empId(p) ? empId(p)+'<br>' : ''}${esc(leader(p) ? roleLabel(p) : (p.designation || ROLE[p.role]))}${D(p.department_id) ? ', '+esc(D(p.department_id)) : ''}</small>${lp ? `<span class="tags">${lp}</span>` : ''}</span>${statusPill(p)}</a>`; }
 function peopleView(){
   const admin = ['founder','director'].includes(S.me.role);
   const pend = admin ? S.people.filter(p => p.status==='pending') : [];
@@ -1254,7 +1256,7 @@ function personView(id){
   const me = p.id===S.me.id, tasks = S.tasks.filter(t => !t.archived && t.assigned_to===p.id && t.status!=='completed');
   const leaves = S.leaves.filter(l => l.user_id===p.id);
   return `<a class="back" href="#people">Back to people</a>
-    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${ROLE[p.role]}${leader(p) ? ', administrator' : ''}</p>${leadPills(p) ? `<p class="tags">${leadPills(p)}</p>` : ''}</div></div>${statusPill(p)}</div>
+    <div class="head"><div style="display:flex;gap:14px;align-items:center">${av(p,64)}<div><h1>${esc(p.full_name)}</h1><p class="muted">${empId(p) ? 'Employee ID '+empId(p)+'<br>' : ''}${esc(p.designation || '')}${p.designation ? ', ' : ''}${esc(roleLabel(p))}${leader(p) ? ', administrator' : ''}</p>${leadPills(p) ? `<p class="tags">${leadPills(p)}</p>` : ''}</div></div>${statusPill(p)}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       ${me ? `<button class="btn sm" onclick="profileForm()">Edit profile</button><label class="btn sm">Change photo<input type="file" accept="image/*" hidden onchange="uploadAvatar(this)"></label><button class="btn sm" onclick="passwordForm()">Change password</button><button class="btn sm danger" onclick="signOut()">Sign out</button>` : ''}
       ${canManage(p) ? `<button class="btn sm" onclick="manageForm('${p.id}')">Manage role and access</button>` : ''}
@@ -1329,24 +1331,41 @@ function personAttendance(p){
     ${list(recent.map(d => dayRow(p.id, d)), 'No days yet.')}`,
     `<a class="link" href="#attendance" onclick="${p.id===S.me.id ? "S.attTab='me'" : `S.attTab='team';S.attF={mode:'list',who:'${p.id}'}`}">Full history</a>`);
 }
-/* Any leader (Founder, Co-Founder, Director) adds or removes leadership. Server rules (profiles_guard):
-   only the Founder can create or change a Founder, and nobody can change their own role. */
+/* Any leader adds, retitles or removes leadership. The title is free text (CTO, COO, Head of Growth...).
+   "Access" maps to the server role: Leadership = cofounder-level, + approvals = director-level, Founder = founder.
+   Server rules (profiles_guard): only the Founder can create or change a Founder; nobody changes their own role or title. */
+const ACCESS = {cofounder:'Leadership (admin)', director:'Leadership + leave and account approvals', founder:'Founder (full control)'};
+const TITLE_SUGGEST = ['Co-Founder','Director','CEO','CTO','COO','CFO','CMO','Head of Product','Head of Growth','Head of Operations','Program Director','General Manager'];
 function leaderForm(){
   const founder = S.me.role==='founder';
   const cand = S.people.filter(p => p.status==='active' && !leader(p)), cur = S.people.filter(p => p.status==='active' && leader(p));
-  const roles = founder ? {director:'Director', cofounder:'Co-Founder', founder:'Founder'} : {director:'Director', cofounder:'Co-Founder'};
-  openModal(`<h2>Leadership</h2><p class="muted" style="margin-bottom:12px">Founder, Co-Founder and Director are administrators: they see everyone's attendance, correct records, manage lead roles, settings and leadership. There is no limit on how many.</p>
-    ${list(cur.map(p => `<div class="row">${av(p,30)}<span class="grow"><b>${esc(p.full_name)}</b><small>${ROLE[p.role]}${p.id===S.me.id ? ', you' : ''}</small></span>${p.id!==S.me.id && (founder || p.role!=='founder') ? `<button class="btn sm danger" onclick="run(()=>setLeader('${p.id}','member'))">Remove</button>` : ''}</div>`))}
-    <form onsubmit="return send(event,(f)=>setLeader(f.who,f.role,true))" style="margin-top:14px">
-      <div class="two"><label class="field"><span>Person</span><select name="who" required><option value="">Choose</option>${cand.map(p => `<option value="${p.id}">${esc(p.full_name)}${p.designation ? ' ('+esc(p.designation)+')' : ''}</option>`).join('')}</select></label>
-        <label class="field"><span>Leadership role</span><select name="role">${opts(roles, 'director')}</select></label></div>
+  const access = founder ? ACCESS : {cofounder:ACCESS.cofounder, director:ACCESS.director};
+  const canEdit = p => p.id!==S.me.id && (founder || p.role!=='founder');
+  openModal(`<h2>Leadership</h2><p class="muted" style="margin-bottom:12px">Give any title you like. Everyone in leadership is an administrator: they see everyone's attendance, correct records, and manage lead roles, settings and leadership. There is no limit on how many.</p>
+    ${list(cur.map(p => `<div class="row" style="flex-wrap:wrap">${av(p,30)}<span class="grow" style="min-width:150px"><b>${esc(p.full_name)}</b><small>${esc(roleLabel(p))}${p.id===S.me.id ? ', you' : ''}<br>${esc(ACCESS[p.role] || ROLE[p.role])}</small></span>
+      ${canEdit(p) ? `<span style="display:flex;gap:6px"><button class="btn sm" onclick="leaderEdit('${p.id}')">Edit</button><button class="btn sm danger" onclick="run(()=>setLeader('${p.id}','member',null))">Remove</button></span>` : ''}</div>`))}
+    <form onsubmit="return send(event,(f)=>setLeader(f.who,f.access,f.title,true))" style="margin-top:14px">
+      <label class="field"><span>Person</span><select name="who" required><option value="">Choose</option>${cand.map(p => `<option value="${p.id}">${esc(p.full_name)}${p.designation ? ' ('+esc(p.designation)+')' : ''}</option>`).join('')}</select></label>
+      <div class="two"><label class="field"><span>Leadership title</span><input name="title" list="lt_suggest" maxlength="40" required placeholder="Type any title, e.g. CTO"></label>
+        <label class="field"><span>Access</span><select name="access">${opts(access, 'cofounder')}</select></label></div>
+      <datalist id="lt_suggest">${TITLE_SUGGEST.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
       <div class="foot"><button class="btn" type="button" onclick="closeModal()">Close</button><button class="btn primary" type="submit">Add to leadership</button></div></form>`);
 }
-async function setLeader(id, role, adding){
+function leaderEdit(id){
+  const p = P(id), founder = S.me.role==='founder';
+  const access = founder ? ACCESS : {cofounder:ACCESS.cofounder, director:ACCESS.director};
+  openModal(`<h2>Edit ${esc(p.full_name)}</h2><form onsubmit="return send(event,(f)=>setLeader('${id}',f.access,f.title,true))">
+    <label class="field"><span>Leadership title</span><input name="title" list="lt_suggest" maxlength="40" required value="${esc(roleLabel(p))}"></label>
+    <label class="field"><span>Access</span><select name="access">${opts(access, p.role)}</select></label>
+    <datalist id="lt_suggest">${TITLE_SUGGEST.map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+    <div class="foot"><button class="btn" type="button" onclick="leaderForm()">Back</button><button class="btn primary" type="submit">Save</button></div></form>`);
+}
+async function setLeader(id, role, title, adding){
   if (!adding && !confirm(`Remove ${nm(id)} from leadership? They become an employee and lose administrator access.`)) return;
-  const d = await q(sb.from('profiles').update({role}).eq('id', id).select());
+  const t = (title || '').trim() || null;
+  const d = await q(sb.from('profiles').update(role==='member' ? {role} : {role, leadership_title:t}).eq('id', id).select());
   if (!d?.length || d[0].role!==role) throw new Error('You are not allowed to make this change.');
-  toast(adding ? `${nm(id)} is now ${ROLE[role]}` : `${nm(id)} removed from leadership`); await refresh(); leaderForm();
+  toast(role==='member' ? `${nm(id)} removed from leadership` : `${nm(id)} is now ${t || ROLE[role]}`); await refresh(); leaderForm();
 }
 /* Lead roles: any number of leads, several per department, configurable lead types. Server enforces admin-only and no self-escalation. */
 function leadForm(uid){
