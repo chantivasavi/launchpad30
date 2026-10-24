@@ -1385,7 +1385,7 @@ function removeLead(id, uid){ if (!confirm('Remove this lead role?')) return; re
 function dayItems(day){
   const a = [];
   S.events.filter(e => e.event_date===day).forEach(e => a.push({k:e.is_holiday ? 'holiday' : 'event', label:(e.is_holiday ? 'Holiday: ' : '') + e.title, id:e.id}));
-  S.offs.filter(o => o.start_date<=day && o.end_date>=day).forEach(o => a.push(o.kind==='wfh' ? {k:'wfh', label:nm(o.user_id)+' working from home', href:'#person/'+o.user_id} : {k:'leave', label:nm(o.user_id)+' on leave', href:'#person/'+o.user_id}));
+  /* Leave and work-from-home are not shown on the calendar (see Home > Today and the Leave page) */
   S.tasks.filter(t => !t.archived && !['completed','review'].includes(t.status) && t.deadline===day).forEach(t => a.push({k:'task', label:t.title+' due', href:'#task/'+t.id}));
   return a;
 }
@@ -1404,7 +1404,7 @@ function calView(){
   return `<div class="head"><h1>${new Date(y,m,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</h1>
     <span style="display:flex;gap:6px"><button class="btn sm" onclick="calMove(-1)" aria-label="Previous month">Prev</button><button class="btn sm" onclick="calMove(1)" aria-label="Next month">Next</button>${isLead() ? `<button class="btn sm primary" onclick="eventForm()">Add date</button>` : ''}</span></div>
     <div class="cal">${cells}</div>
-    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="leave"></i>&nbsp;Approved leave</span><span class="dots" style="align-items:center"><i class="wfh"></i>&nbsp;Work from home</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span><span class="dots" style="align-items:center"><i class="holiday"></i>&nbsp;Holiday</span></p>
+    <p class="muted" style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:13px"><span class="dots" style="align-items:center"><i></i>&nbsp;Task deadline</span><span class="dots" style="align-items:center"><i class="event"></i>&nbsp;Team date</span><span class="dots" style="align-items:center"><i class="holiday"></i>&nbsp;Holiday</span></p>
     ${sec(fmtLong(S.calDay), list(rows, 'Nothing on this day.'))}`;
 }
 function calMove(n){ const d = new Date(S.cal.y, S.cal.m+n, 1); S.cal = {y:d.getFullYear(), m:d.getMonth()}; S.calDay = ymd(d); route(); }
