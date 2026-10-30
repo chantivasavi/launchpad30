@@ -673,14 +673,14 @@ function attCard(){
     : `<span class="pill green">Day complete</span>`;
   const live = r?.check_in_at && !r.check_out_at ? `<span data-since="${r.check_in_at}">${fmtDur(Math.floor((Date.now()-new Date(r.check_in_at))/6e4))}</span>` : fmtDur(r?.worked_minutes);
   const pct = Math.min(100, g.used / Math.max(1,g.lim) * 100);
-  return `${yest ? `<div class="banner amber"><span class="grow"><b>You did not check out on ${fmt(yest.work_date)}</b><span class="muted">That day is flagged as a missing check-out.${S.reqReady ? ' Send a request with your actual time and an administrator will approve it.' : ' Ask an administrator to correct it if needed.'}</span></span>${S.reqReady ? (myPendingReq(yest.work_date) ? '<span class="pill amber">Fix requested</span>' : `<span class="acts"><button class="btn sm primary" onclick="reqForm('${yest.work_date}')">Request a fix</button></span>`) : ''}</div>` : ''}
+  return `${yest ? `<div class="banner amber"><span class="grow"><b>You did not check out on ${fmt(yest.work_date)}</b><span class="muted">That day is flagged as a missing check-out.${S.reqReady ? ' Send a request with your actual time and the Director will approve it.' : ' Ask an administrator to correct it if needed.'}</span></span>${S.reqReady ? (myPendingReq(yest.work_date) ? '<span class="pill amber">Change requested</span>' : `<span class="acts"><button class="btn sm primary" onclick="reqForm('${yest.work_date}')">Request change</button></span>`) : ''}</div>` : ''}
     <div class="punch"><div style="min-width:0">
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b>${fmtLong(t)}</b>${stPill(st, r, S.me.id, t)}${off && !r ? `<span class="muted">${DAYTYPE[off]}</span>` : ''}</div>
       <div class="when"><span><small>Check-in</small><b>${fmtT(r?.check_in_at)}</b></span><span><small>Check-out</small><b>${fmtT(r?.check_out_at)}</b></span><span><small>Worked</small><b>${live}</b></span></div>
       ${r && locLinks(r) ? `<p style="margin-top:6px">${locLinks(r)}</p>` : ''}
       <p class="muted" style="font-size:13px;margin-top:6px">Your location is recorded when you check in and check out. Office hours ${fmtClock(s.work_start)} to ${fmtClock(s.work_end)}. Grace chances ${PERIOD[s.grace_period]}: <b>${g.left} of ${g.lim} left</b>${g.ded ? `, ${g.ded} day deducted` : ''}.</p>
       <div class="meter" title="${g.used} of ${g.lim} grace chances used"><i class="${g.used>g.lim ? 'over' : g.used>=g.lim-1 ? 'warn' : ''}" style="width:${pct}%"></i></div>
-    </div><div class="acts">${btn}</div></div>`;
+    </div><div class="acts">${btn}${S.reqReady && ['late','early','late_early'].includes(st) ? (myPendingReq(t) ? '<span class="pill amber">Change requested</span>' : `<button class="btn" onclick="reqForm('${t}')">Request change</button>`) : ''}</div></div>`;
 }
 /* Home page: attendance stays folded into one line and opens only when tapped */
 function attFold(){
@@ -756,7 +756,7 @@ function attendanceView(){
   const tabs = [['me','My attendance']];
   if (canSeeTeamAtt()) tabs.push(['team','Team']);
   const pending = S.vio.filter(v => v.status==='active' && (v.deduction_status==='insufficient_balance' || v.dispute_status==='open') && v.user_id!==S.me.id).length + reqsToReview().length;
-  if (isAdmin()) tabs.push(['review', `Review${pending ? ' ('+pending+')' : ''}`]);
+  if (isAdmin() || isApprover()) tabs.push(['review', `Review${pending ? ' ('+pending+')' : ''}`]);
   if (!tabs.some(x => x[0]===S.attTab)) S.attTab = 'me';
   const seg = `<div class="seg">${tabs.map(([k,l]) => `<button class="${k===S.attTab?'on':''}" onclick="S.attTab='${k}';route()">${l}</button>`).join('')}</div>`;
   const head = `<div class="head"><h1>Attendance</h1>${isAdmin() ? `<button class="btn" onclick="correctForm()">Correct a record</button>` : ''}</div>`;
@@ -775,7 +775,8 @@ function vioRow(v, showName){
   const disp = v.dispute_status==='open' ? '<span class="pill amber">Disputed</span>' : v.dispute_status==='rejected' ? '<span class="pill">Dispute rejected</span>' : v.dispute_status==='resolved' ? '<span class="pill green">Dispute resolved</span>' : '';
   const mine = v.user_id===S.me.id, admin = isAdmin() && (!mine || S.me.role==='founder');
   let acts = '';
-  if (mine && v.status==='active' && v.dispute_status!=='open') acts += `<button class="btn sm" onclick="disputeForm('${v.id}')">Dispute</button>`;
+  if (mine && v.status==='active' && S.reqReady) acts += myPendingReq(v.work_date) ? '<span class="pill amber">Change requested</span>' : `<button class="btn sm" onclick="reqForm('${v.work_date}')">Request change</button>`;
+  else if (mine && v.status==='active' && v.dispute_status!=='open') acts += `<button class="btn sm" onclick="disputeForm('${v.id}')">Dispute</button>`;
   if (admin && v.status==='active') {
     if (v.deduction_status==='insufficient_balance') acts += `<button class="btn sm" onclick="vioForm('${v.id}','force_apply')">Apply anyway</button>`;
     if (['applied','insufficient_balance'].includes(v.deduction_status)) acts += `<button class="btn sm" onclick="vioForm('${v.id}','waive')">Waive deduction</button>`;
@@ -797,7 +798,7 @@ function dayRow(uid, d, showName){
       ${r && locLinks(r) ? `<small>${locLinks(r)}</small>` : ''}</span>
     <span class="tags" style="margin:0">${stPill(st, r, uid, d)}</span>
     ${isAdmin() && (uid!==S.me.id || S.me.role==='founder') && d<=istToday() ? `<button class="btn sm" onclick="correctForm('${uid}','${d}')">Correct</button>`
-      : uid===S.me.id && S.reqReady && canRequest(st, d) ? (myPendingReq(d) ? '<span class="pill amber">Fix requested</span>' : `<button class="btn sm" onclick="reqForm('${d}')">Request fix</button>`) : ''}</div>`;
+      : uid===S.me.id && S.reqReady && canRequest(st, d) ? (myPendingReq(d) ? '<span class="pill amber">Change requested</span>' : `<button class="btn sm" onclick="reqForm('${d}')">Request change</button>`) : ''}</div>`;
 }
 function attMeView(){
   const m = S.attF.myMonth || istToday().slice(0,7), t = istToday();
@@ -810,7 +811,7 @@ function attMeView(){
       <div><b>${g.late}</b><small>Late check-ins</small></div><div><b>${g.early}</b><small>Early checkouts</small></div>
       <div><b>${b ? Number(b.balance) : '--'}</b><small>Paid leave balance (days)</small></div></div>
     <p class="muted" style="margin-top:8px;font-size:13px">The first ${g.lim} late check-ins or early checkouts ${PERIOD[S.settings.grace_period]} are free. Each one after that deducts ${Number(S.settings.deduction_days)} day of leave. ${S.settings.count_same_day_separately ? 'A late check-in and an early checkout on the same day count as two.' : 'A late check-in and an early checkout on the same day count as one.'}</p>
-    ${S.reqReady ? sec('My attendance requests', list(S.reqs.filter(x => x.user_id===S.me.id).slice(0,10).map(x => reqRow(x)), 'Forgot to check in or out? Send a request and an administrator will check and approve it.'), `<button class="btn sm" onclick="reqForm()">Request a fix</button>`) : ''}
+    ${S.reqReady ? sec('My attendance requests', list(S.reqs.filter(x => x.user_id===S.me.id).slice(0,10).map(x => reqRow(x)), 'Late, early or forgot to check in or out? Send a request with your time and a reason. The Director approves it.'), `<button class="btn sm" onclick="reqForm()">Request change</button>`) : ''}
     ${sec('Violations and deductions', list(vs.map(v => vioRow(v)), 'No late check-ins or early checkouts this month.'), monthNav(m,'myMonth'))}
     ${sec(`Daily record, ${monthName(m)}`, list(days.map(d => dayRow(S.me.id, d)), 'No days yet.'), `<small>${recs.filter(r=>r.check_in_at).length} days present, ${fmtDur(recs.reduce((n,r) => n + (r.worked_minutes||0), 0))} worked</small>`)}`;
 }
@@ -885,7 +886,7 @@ function attReviewView(){
   const audit = S.audit.filter(a => !['check_in','check_out'].includes(a.action)).slice(0,60);
   const reqs = reqsToReview();
   return `<p class="muted" style="margin-bottom:12px">Attendance requests, deductions that could not be applied, open disputes and missing check-outs. Every decision is kept in the audit trail.</p>
-    ${S.reqReady ? sec(`Attendance requests (${reqs.length})`, list(reqs.map(x => reqRow(x, true)), 'No requests waiting.')) : ''}
+    ${S.reqReady && isApprover() ? sec(`Attendance requests (${reqs.length})`, list(reqs.map(x => reqRow(x, true)), 'No requests waiting.')) : ''}
     ${sec(`Deductions on hold: not enough leave (${held.length})`, list(held.map(v => vioRow(v,true)), 'Nothing on hold.'))}
     ${sec(`Open disputes (${disputes.length})`, list(disputes.map(v => vioRow(v,true)), 'No open disputes.'))}
     ${sec(`Missing check-outs (${missing.length})`, list(missing.slice(0,40).map(a => dayRow(a.user_id, a.work_date, true)), 'None.'))}
@@ -930,7 +931,8 @@ async function vioAct(id, action, note){ await q(sb.rpc('attendance_violation_ac
 /* ---------- Attendance requests: forgot to check in or out, an administrator checks and approves ---------- */
 const myPendingReq = d => (S.reqs||[]).find(x => x.user_id===S.me.id && x.work_date===d && x.status==='pending');
 const canRequest = (st, d) => d<=istToday() && !(S.settings?.attendance_start && d < S.settings.attendance_start) && (['missing','absent','late','early','late_early'].includes(st) || (d===istToday() && st==='notyet'));
-const reqsToReview = () => !isAdmin() || !S.reqReady ? [] : S.reqs.filter(x => x.status==='pending' && (x.user_id!==S.me.id || S.me.role==='founder')).sort((a,b) => a.created_at<b.created_at?-1:1);
+const isApprover = () => S.me?.status==='active' && S.me.role==='director';
+const reqsToReview = () => !isApprover() || !S.reqReady ? [] : S.reqs.filter(x => x.status==='pending' && x.user_id!==S.me.id).sort((a,b) => a.created_at<b.created_at?-1:1);
 const REQ_ST = {pending:['Waiting for approval','amber'], approved:['Approved','green'], rejected:['Rejected','red'], cancelled:['Cancelled','']};
 function reqRow(x, review){
   const r = attFor(x.user_id, x.work_date), [l,c] = REQ_ST[x.status];
@@ -947,12 +949,12 @@ function reqRow(x, review){
 function reqForm(d){
   const t = istToday(); d = d || (S.att.filter(a => a.user_id===S.me.id && a.check_in_at && !a.check_out_at && a.work_date<t).map(a => a.work_date).sort().pop() || t);
   const r = attFor(S.me.id, d), tm = ts => ts ? new Date(ts).toLocaleTimeString('en-GB',{timeZone:TZ(),hour:'2-digit',minute:'2-digit'}) : '';
-  openModal(`<h2>Request an attendance fix</h2><div class="note">Forgot to check in or check out? Enter your actual times. An administrator checks and approves it, and your record is updated.</div>
+  openModal(`<h2>Request attendance change</h2><div class="note">Enter your check-in and check-out time and the reason. The Director checks it, and once approved your record is updated.</div>
     <form onsubmit="return send(event,saveReq)">
       <label class="field"><span>Date</span><input name="date" type="date" value="${d}" max="${t}" min="${S.settings?.attendance_start || ''}" required onchange="reqForm(this.value)"></label>
       <div class="two"><label class="field"><span>Check-in time</span><input name="cin" type="time" value="${tm(r?.check_in_at)}" required></label>
         <label class="field"><span>Check-out time</span><input name="cout" type="time" value="${tm(r?.check_out_at)}"><small>Leave empty if still at work</small></label></div>
-      <label class="field"><span>What happened</span><textarea name="reason" required minlength="5" placeholder="For example: forgot to check out, left at 6:30 pm"></textarea></label>
+      <label class="field"><span>Reason</span><textarea name="reason" required minlength="5" placeholder="For example: stuck in traffic, forgot to check out"></textarea></label>
       <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Send request</button></div></form>`);
 }
 async function saveReq(f){
@@ -960,12 +962,12 @@ async function saveReq(f){
   let cout = iso(f.date, f.cout);
   if (cout && f.cout < f.cin) cout = iso(addDays(f.date,1), f.cout);
   await q(sb.rpc('attendance_request_create', {p_date:f.date, p_check_in:iso(f.date,f.cin), p_check_out:cout, p_reason:f.reason.trim()}));
-  closeModal(); toast('Request sent for approval'); await refresh();
+  closeModal(); toast('Request sent to the Director'); await refresh();
 }
 function reqDecide(id, approve){
   const x = S.reqs.find(r => r.id===id); if (!x) return;
   openModal(`<h2>${approve ? 'Approve' : 'Reject'} request</h2>
-    <div class="note">${esc(nm(x.user_id))}, ${fmt(x.work_date)}: in ${fmtT(x.check_in_at)}, out ${fmtT(x.check_out_at)}.${approve ? ' Their record is updated, late or early outcomes are recalculated and they are notified.' : ' Their record stays as it is and they are notified.'}</div>
+    <div class="note">${esc(nm(x.user_id))}, ${fmt(x.work_date)}: in ${fmtT(x.check_in_at)}, out ${fmtT(x.check_out_at)}.${approve ? ' Their record is set to these times, late or early is recalculated and they are notified.' : ' Their record stays as it is and they are notified.'}</div>
     <form onsubmit="return send(event,(f)=>reqAct('${id}',${approve},f.note))">
       <label class="field"><span>${approve ? 'Note (optional)' : 'Reason'}</span><textarea name="note" ${approve ? '' : 'required minlength="3"'}></textarea></label>
       <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${approve ? 'Approve' : 'Reject'}</button></div></form>`);
@@ -1487,7 +1489,7 @@ function inboxView(){
 async function openNote(id){
   const n = S.notes.find(x => x.id===id); if(!n) return;
   if (!n.read) { n.read = true; sb.from('notifications').update({read:true}).eq('id',id).then(()=>{}); }
-  if (n.entity_type==='attendance') S.attTab = ['att_review','att_dispute','att_request'].includes(n.type) && isAdmin() ? 'review' : 'me';
+  if (n.entity_type==='attendance') S.attTab = (['att_review','att_dispute'].includes(n.type) && isAdmin()) || (n.type==='att_request' && isApprover()) ? 'review' : 'me';
   go(n.entity_type==='task' ? 'task/'+n.entity_id : n.entity_type==='leave' ? 'leave' : n.entity_type==='attendance' ? 'attendance'
     : ['lead_assigned','lead_removed'].includes(n.type) ? 'person/'+S.me.id : ['account_approved','location'].includes(n.type) ? 'home' : 'people');
 }
