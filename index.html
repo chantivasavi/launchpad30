@@ -574,8 +574,8 @@ function homeView(){
   out += outToday();
   if (requests.length) out += sec('Account requests', list(requests.map(accountRow)));
   if (approvals.length) out += sec('Leave and work from home to approve', list(approvals.map(l => leaveRow(l,true))));
-  const attReqs = reqsToReview();
-  if (attReqs.length) out += sec(`Attendance requests to approve (${attReqs.length})`, list(attReqs.map(x => reqRow(x, true))));
+  const attReqs = reqsToReview(), attDisp = isApprover() ? S.vio.filter(v => v.status==='active' && v.dispute_status==='open' && v.user_id!==S.me.id) : [];
+  if (attReqs.length + attDisp.length) out += sec(`Attendance requests to approve (${attReqs.length + attDisp.length})`, list([...attReqs.map(x => reqRow(x, true)), ...attDisp.map(v => vioRow(v, true))]));
   if (waiting.length) out += sec('Submitted, waiting for confirmation', list(waiting.map(taskRow)));
   if (late.length) out += sec('Overdue', list(late.map(taskRow)));
   out += sec('Due today', list(now.map(taskRow), 'Nothing due today.'));
@@ -772,18 +772,19 @@ function vioRow(v, showName){
   const ded = {applied:`<span class="pill red">${Number(v.deduction_days)} day deducted</span>`, insufficient_balance:'<span class="pill amber">Deduction on hold: low balance</span>',
     reversed:'<span class="pill green">Deduction reversed</span>', waived:'<span class="pill green">Deduction waived</span>', none:''}[v.deduction_status];
   const grace = v.status==='voided' ? `<span class="pill">Voided</span>` : v.counted ? `<span class="pill ${v.within_grace ? 'blue' : 'red'}">Occurrence ${v.grace_number} of ${S.settings.grace_limit}${v.within_grace ? ', grace' : ''}</span>` : `<span class="pill">Same day, not counted again</span>`;
-  const disp = v.dispute_status==='open' ? '<span class="pill amber">Disputed</span>' : v.dispute_status==='rejected' ? '<span class="pill">Dispute rejected</span>' : v.dispute_status==='resolved' ? '<span class="pill green">Dispute resolved</span>' : '';
+  const disp = v.dispute_status==='open' ? '<span class="pill amber">Change requested</span>' : v.dispute_status==='rejected' ? '<span class="pill">Dispute rejected</span>' : v.dispute_status==='resolved' ? '<span class="pill green">Dispute resolved</span>' : '';
   const mine = v.user_id===S.me.id, admin = isAdmin() && (!mine || S.me.role==='founder');
   let acts = '';
   if (mine && v.status==='active' && S.reqReady) acts += myPendingReq(v.work_date) ? '<span class="pill amber">Change requested</span>' : `<button class="btn sm" onclick="reqForm('${v.work_date}')">Request change</button>`;
-  else if (mine && v.status==='active' && v.dispute_status!=='open') acts += `<button class="btn sm" onclick="disputeForm('${v.id}')">Dispute</button>`;
+  else if (mine && v.status==='active' && v.dispute_status!=='open') acts += `<button class="btn sm" onclick="disputeForm('${v.id}')">Request change</button>`;
+  else if (mine && v.status==='active' && v.dispute_status==='open') acts += '<span class="pill amber">Waiting for Director</span>';
   if (admin && v.status==='active') {
     if (v.deduction_status==='insufficient_balance') acts += `<button class="btn sm" onclick="vioForm('${v.id}','force_apply')">Apply anyway</button>`;
     if (['applied','insufficient_balance'].includes(v.deduction_status)) acts += `<button class="btn sm" onclick="vioForm('${v.id}','waive')">Waive deduction</button>`;
-    if (v.dispute_status==='open') acts += `<button class="btn sm" onclick="vioForm('${v.id}','reject_dispute')">Reject dispute</button>`;
+    if (v.dispute_status==='open' && isApprover() && !mine) acts += `<button class="btn sm primary" onclick="approveDispute('${v.id}')">Approve</button><button class="btn sm" onclick="vioForm('${v.id}','reject_dispute')">Reject</button>`;
     acts += `<button class="btn sm danger" onclick="vioForm('${v.id}','void')">Void</button>`;
   }
-  const notes = [v.deduction_reason, v.dispute_note && 'Employee: '+v.dispute_note, v.resolution_note && 'Decision: '+v.resolution_note, v.status==='voided' && v.voided_reason && 'Voided: '+v.voided_reason].filter(Boolean);
+  const notes = [v.deduction_reason, v.dispute_note && 'Employee request: '+v.dispute_note, v.resolution_note && 'Decision: '+v.resolution_note, v.status==='voided' && v.voided_reason && 'Voided: '+v.voided_reason].filter(Boolean);
   return `<div class="row" style="flex-wrap:wrap;align-items:flex-start">${showName ? av(P(v.user_id),30) : ''}
     <span class="grow wrap" style="min-width:200px"><b>${showName ? esc(nm(v.user_id))+', ' : ''}${VKIND[v.kind]}, ${fmt(v.work_date)}</b>
       <small>Expected ${fmtT(v.expected_at)}, actual ${fmtT(v.actual_at)} (${v.minutes} min)</small>
@@ -888,7 +889,7 @@ function attReviewView(){
   return `<p class="muted" style="margin-bottom:12px">Attendance requests, deductions that could not be applied, open disputes and missing check-outs. Every decision is kept in the audit trail.</p>
     ${S.reqReady && isApprover() ? sec(`Attendance requests (${reqs.length})`, list(reqs.map(x => reqRow(x, true)), 'No requests waiting.')) : ''}
     ${sec(`Deductions on hold: not enough leave (${held.length})`, list(held.map(v => vioRow(v,true)), 'Nothing on hold.'))}
-    ${sec(`Open disputes (${disputes.length})`, list(disputes.map(v => vioRow(v,true)), 'No open disputes.'))}
+    ${sec(`Change requests: late or early (${disputes.length})`, list(disputes.map(v => vioRow(v,true)), 'No requests waiting.'))}
     ${sec(`Missing check-outs (${missing.length})`, list(missing.slice(0,40).map(a => dayRow(a.user_id, a.work_date, true)), 'None.'))}
     ${sec('Audit trail', list(audit.map(a => `<div class="row" style="align-items:flex-start">${av(P(a.actor_id),28)}<span class="grow wrap"><b style="font-weight:500">${esc(ACT[a.action] || a.action)}${a.user_id ? ': '+esc(nm(a.user_id)) : ''}</b>
       <small>${a.actor_id ? 'By '+esc(nm(a.actor_id))+', ' : 'System, '}${ago(a.created_at)}${a.reason ? '<br>Reason: '+esc(a.reason) : ''}${a.action==='correction' && a.detail?.after ? `<br>Now in ${fmtT(a.detail.after.check_in_at)}, out ${fmtT(a.detail.after.check_out_at)}${a.detail.before ? ` (was ${fmtT(a.detail.before.check_in_at)} to ${fmtT(a.detail.before.check_out_at)})` : ''}` : ''}</small></span></div>`), 'No entries yet.'))}`;
@@ -912,16 +913,34 @@ async function saveCorrection(f){
   await q(sb.rpc('attendance_correct', {p_user:f.user, p_date:f.date, p_check_in:iso(f.date,f.cin), p_check_out:cout, p_reason:f.reason.trim()}));
   closeModal(); toast('Attendance corrected'); await refresh();
 }
+const hhmm = ts => ts ? new Date(ts).toLocaleTimeString('en-GB',{timeZone:TZ(),hour:'2-digit',minute:'2-digit'}) : '';
 function disputeForm(id){
-  openModal(`<h2>Dispute this record</h2><div class="note">An administrator reviews it and can void the violation, which returns any leave deducted for it.</div>
-    <form onsubmit="return send(event,(f)=>vioAct('${id}','dispute',f.note))"><label class="field"><span>What is wrong?</span><textarea name="note" required></textarea></label>
-    <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Send dispute</button></div></form>`);
+  const v = S.vio.find(x => x.id===id); if (!v) return;
+  const late = v.kind==='late_checkin', label = late ? 'Check-in time' : 'Check-out time';
+  openModal(`<h2>Request attendance change</h2><div class="note">Enter the ${late ? 'check-in' : 'check-out'} time you want for ${fmt(v.work_date)} and the reason. The Director checks it, and once approved your record is updated.</div>
+    <form onsubmit="return send(event,(f)=>vioAct('${id}','dispute','Requested ${late ? 'check-in' : 'check-out'} '+f.time+'. '+f.note.trim()))">
+      <label class="field"><span>${label}</span><input name="time" type="time" value="${hhmm(v.expected_at)}" required></label>
+      <label class="field"><span>Reason</span><textarea name="note" required minlength="5" placeholder="For example: stuck in traffic, network issue"></textarea></label>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Send request</button></div></form>`);
+}
+/* Director approves an employee's request: sets the record to the requested time through the normal correction (violation is cleared if now on time) */
+function approveDispute(id){
+  const v = S.vio.find(x => x.id===id); if (!v) return;
+  const r = attFor(v.user_id, v.work_date), m = (v.dispute_note||'').match(/Requested (check-in|check-out) (\d{2}:\d{2})/);
+  const cin = m && m[1]==='check-in' ? m[2] : v.kind==='late_checkin' ? hhmm(v.expected_at) : hhmm(r?.check_in_at);
+  const cout = m && m[1]==='check-out' ? m[2] : v.kind==='early_checkout' ? hhmm(v.expected_at) : hhmm(r?.check_out_at);
+  openModal(`<h2>Approve request</h2><div class="note">${esc(nm(v.user_id))}, ${fmt(v.work_date)}. ${esc(v.dispute_note||'')}</div>
+    <form onsubmit="return send(event,(f)=>saveCorrection({user:'${v.user_id}',date:'${v.work_date}',cin:f.cin,cout:f.cout,reason:'Approved request: '+(S.vio.find(x => x.id==='${id}')?.dispute_note||'')}))">
+      <div class="two"><label class="field"><span>Check-in time</span><input name="cin" type="time" value="${cin}" required></label>
+        <label class="field"><span>Check-out time</span><input name="cout" type="time" value="${cout}"><small>Leave empty if still at work</small></label></div>
+      <p class="muted" style="margin-bottom:14px">The record is set to these times, late or early is recalculated, and the employee is notified.</p>
+      <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">Approve</button></div></form>`);
 }
 function vioForm(id, action){
   const T = {void:['Void violation','It no longer counts towards grace chances. Any deduction for it is returned and later occurrences are renumbered.','Void'],
     waive:['Waive deduction','The violation still counts, but no leave is deducted for it.','Waive'],
     force_apply:['Apply deduction anyway','The employee does not have enough leave. Applying it makes their balance negative.','Apply deduction'],
-    reject_dispute:['Reject dispute','The record stays as it is.','Reject dispute']}[action];
+    reject_dispute:['Reject request','The record stays as it is and the employee is notified.','Reject']}[action];
   openModal(`<h2>${T[0]}</h2><div class="note">${T[1]}</div><form onsubmit="return send(event,(f)=>vioAct('${id}','${action}',f.note))">
     <label class="field"><span>Reason</span><textarea name="note" required></textarea></label>
     <div class="foot"><button class="btn" type="button" onclick="closeModal()">Cancel</button><button class="btn primary" type="submit">${T[2]}</button></div></form>`);
